@@ -1,6 +1,6 @@
 import onmessage from "./onmessage";
-import workers from "./workers";
+import pool from "./pool";
 
 
-export default workers;
+export default pool;
 export { onmessage };

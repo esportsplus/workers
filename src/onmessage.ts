@@ -4,7 +4,11 @@ export default (actions: object, worker: Worker) => {
             action: any = actions;
 
         for (let i = 0, n = path.length; i < n; i++) {
-            action = action[path[i]] || {};
+            action = action[path[i]];
+
+            if (!action) {
+                break;
+            }
         }
 
         if (typeof action !== 'function') {
