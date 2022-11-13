@@ -1,6 +1,10 @@
 export default (actions: object, worker: Worker) => {
     worker.onmessage = async (e) => {
-        let [path, values] = e.data,
+        if (!Array.isArray( e?.data?.action )) {
+            return;
+        }
+
+        let [path, values] = e.data?.action,
             action: any = actions;
 
         for (let i = 0, n = path.length; i < n; i++) {

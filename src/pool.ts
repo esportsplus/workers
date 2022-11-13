@@ -56,7 +56,7 @@ class Pool {
                 reject(e.message);
             };
 
-            worker.postMessage([path, values]);
+            worker.postMessage({ action: [path, values] });
         });
     }
 }
