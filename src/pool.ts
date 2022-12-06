@@ -5,21 +5,21 @@ let available = navigator.hardwareConcurrency - 1 || 1;
 
 
 class Pool {
-    #available: number[] = [];
-    #limit: number;
-    #url: string;
-    #workers: Worker[] = [];
+    private available: number[] = [];
+    private limit: number;
+    private url: string;
+    private workers: Worker[] = [];
 
 
     constructor(url: string, limit?: number) {
-        this.#limit = available;
-        this.#url = url;
+        this.limit = available;
+        this.url = url;
 
-        if (limit && this.#limit > limit) {
-            this.#limit = limit;
+        if (limit && this.limit > limit) {
+            this.limit = limit;
         }
 
-        available -= this.#limit;
+        available -= this.limit;
 
         if (available < 0) {
             throw new Error('Workers pool exceeded max capacity!');
@@ -27,32 +27,32 @@ class Pool {
     }
 
 
-    #manage(worker: Worker) {
-        let index = this.#workers.indexOf(worker);
+    private manage(worker: Worker) {
+        let index = this.workers.indexOf(worker);
 
-        if (this.#workers.length > this.#limit) {
-            this.#workers.splice(index, 1)[0]?.terminate();
+        if (this.workers.length > this.limit) {
+            this.workers.splice(index, 1)[0]?.terminate();
         }
         else {
-            this.#available.push(index);
+            this.available.push(index);
         }
     }
 
     async schedule(path: string[], values: any[]) {
-        if (this.#limit <= this.#workers.length) {
-            await Promise.race(this.#workers);
+        if (this.limit <= this.workers.length) {
+            await Promise.race(this.workers);
         }
 
-        let worker = this.#workers[this.#available.shift() || -1] || new Worker(this.#url);
+        let worker = this.workers[this.available.shift() || -1] || new Worker(this.url);
 
         return new Promise((resolve, reject) => {
             worker.onmessage = (e) => {
-                this.#manage(worker);
+                this.manage(worker);
                 resolve(e.data);
             };
 
             worker.onerror = (e) => {
-                this.#manage(worker);
+                this.manage(worker);
                 reject(e.message);
             };
 
