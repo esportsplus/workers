@@ -7,7 +7,7 @@
         "declarationDir": "./build",
         "lib": ["dom", "esnext"],
         "module": "esnext",
-        "moduleResolution": "node",
+        "moduleResolution": "nodenext",
         "noUnusedLocals": true,
         "noUnusedParameters": true,
         "outDir": "./build",

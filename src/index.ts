@@ -2,5 +2,5 @@ import onmessage from "./onmessage";
 import pool from "./pool";
 
 
-export default pool;
-export { onmessage };
+export default { onmessage, pool };
+export { onmessage, pool };
