@@ -62,7 +62,7 @@ class Pool {
 }
 
 
-export default <T extends object>(url: string, limit?: number) => {
+export default <T extends Record<string, any>>(url: string, limit?: number) => {
     let pool = new Pool(url, limit);
 
     return (): Infer<T> => new Proxy(
