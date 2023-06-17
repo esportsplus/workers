@@ -1,24 +1,10 @@
 {
     "compilerOptions": {
-        "allowJs": true,
-        "alwaysStrict": true,
-        "baseUrl": "src",
-        "declaration": true,
-        "declarationDir": "./build",
-        "lib": ["dom", "esnext"],
-        "module": "esnext",
-        "moduleResolution": "nodenext",
-        "noUnusedLocals": true,
-        "noUnusedParameters": true,
-        "outDir": "./build",
-        "paths": {
-            "~/*": ["*"]
-        },
-        "removeComments": true,
-        "resolveJsonModule": true,
-        "strict": true,
-        "target": "esnext"
+        "baseUrl": ".",
+        "declarationDir": "build",
+        "outDir": "build"
     },
     "exclude": ["node_modules"],
+    "extends": "@esportsplus/rspack/tsconfig.base.json",
     "include": ["src"]
 }

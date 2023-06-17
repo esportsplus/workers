@@ -2,8 +2,7 @@
     "author": "ICJR",
     "description": "Web worker pool",
     "devDependencies": {
-        "tsc-alias": "^1.8.1",
-        "typescript": "^4.9.3"
+        "@esportsplus/rspack": "^0.0.15"
     },
     "main": "./build/index.js",
     "name": "@esportsplus/workers",
