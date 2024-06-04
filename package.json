@@ -2,7 +2,7 @@
     "author": "ICJR",
     "description": "Web worker pool",
     "devDependencies": {
-        "@esportsplus/rspack": "^0.0.15"
+        "@esportsplus/typescript": "^0.0.21"
     },
     "main": "./build/index.js",
     "name": "@esportsplus/workers",

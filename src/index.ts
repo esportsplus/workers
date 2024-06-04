@@ -1,5 +1,5 @@
-import onmessage from "./onmessage";
-import pool from "./pool";
+import onmessage from './onmessage';
+import pool from './pool';
 
 
 export default { onmessage, pool };

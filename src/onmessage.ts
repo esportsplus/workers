@@ -1,4 +1,9 @@
-export default (actions: object, worker: Worker) => {
+interface Actions {
+    [key: PropertyKey]: Actions | (<T>(...args: unknown[]) => T)
+};
+
+
+export default (actions: Actions, worker: Worker) => {
     worker.onmessage = async (e) => {
         if (!Array.isArray( e?.data?.action )) {
             return;
@@ -22,3 +27,4 @@ export default (actions: object, worker: Worker) => {
         worker.postMessage( await action(...values) );
     };
 };
+export { Actions };
