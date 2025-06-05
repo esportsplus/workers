@@ -8,4 +8,4 @@ type Infer<T> =
                 : never;
 
 
-export { Infer };
+export type { Infer };

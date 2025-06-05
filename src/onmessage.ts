@@ -27,4 +27,4 @@ export default (actions: Actions, worker: Worker) => {
         worker.postMessage( await action(...values) );
     };
 };
-export { Actions };
+export type { Actions };
