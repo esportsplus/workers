@@ -98,7 +98,15 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
         };
 
         worker.onmessage = (e) => {
-            let data = decode(e.data);
+            let data = e.data;
+
+            // Handle raw (non-encoded) messages for SAB/OffscreenCanvas
+            if (data?.raw) {
+                data = data.result;
+            }
+            else if (data instanceof ArrayBuffer) {
+                data = decode(data);
+            }
 
             // Custom event from worker
             if (data?.__event) {
@@ -155,9 +163,28 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
             );
         }
 
-        let buffer = encode({ action: [task.path, task.values] });
+        // Check if any transfer contains SharedArrayBuffer or OffscreenCanvas
+        let raw = false,
+            transfer = task.transfer || [];
 
-        worker.postMessage(buffer, [buffer]);
+        for (let i = 0, n = transfer.length; i < n; i++) {
+            let item = transfer[i];
+
+            if (item instanceof SharedArrayBuffer || (typeof OffscreenCanvas !== 'undefined' && item instanceof OffscreenCanvas)) {
+                raw = true;
+                break;
+            }
+        }
+
+        if (raw) {
+            // Skip codec for SAB/OffscreenCanvas - use structured clone directly
+            worker.postMessage({ action: [task.path, task.values], raw: true }, transfer);
+        }
+        else {
+            let buffer = encode({ action: [task.path, task.values] });
+
+            worker.postMessage(buffer, [buffer, ...transfer]);
+        }
     }
 
     private emit<K extends keyof E>(event: K, data: E[K]) {
@@ -240,7 +267,7 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
         listeners.add(fn);
     }
 
-    schedule(path: string, values: any[], options?: { signal?: AbortSignal; timeout?: number }): Promise<any> {
+    schedule(path: string, values: any[], options?: { signal?: AbortSignal; timeout?: number; transfer?: Transferable[] }): Promise<any> {
         return new Promise((resolve, reject) => {
             if (this.cleanup) {
                 reject(new Error('@esportsplus/workers: pool is shutting down'));
@@ -254,6 +281,7 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
                     resolve,
                     signal: options?.signal,
                     timeout: options?.timeout,
+                    transfer: options?.transfer,
                     values
                 };
 

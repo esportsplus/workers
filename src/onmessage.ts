@@ -65,10 +65,14 @@ export default <E extends Record<string, any> = Record<string, any>>(actions: Ac
         worker = adapter();
 
     worker.onmessage = async (e) => {
-        let data = e.data;
+        let data = e.data,
+            raw = false;
 
         if (data instanceof ArrayBuffer) {
             data = decode(data);
+        }
+        else if (data?.raw) {
+            raw = true;
         }
 
         if (!data?.action) {
@@ -82,9 +86,17 @@ export default <E extends Record<string, any> = Record<string, any>>(actions: Ac
             throw new Error(`@esportsplus/workers: path does not exist '${path}'`);
         }
 
-        let buffer = encode( await action(...values, context) );
+        let result = await action(...values, context);
 
-        worker.postMessage(buffer, [buffer]);
+        if (raw) {
+            // Skip codec for SAB/OffscreenCanvas responses
+            worker.postMessage({ result, raw: true });
+        }
+        else {
+            let buffer = encode(result);
+
+            worker.postMessage(buffer, [buffer]);
+        }
     };
 };
 export type { Actions };

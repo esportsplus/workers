@@ -100,7 +100,29 @@ let result = await workers({
 }).processData(largeDataset);
 ```
 
-## Worker Events
+### Transferables
+
+Transfer `ArrayBuffer`, `SharedArrayBuffer`, or `OffscreenCanvas` for zero-copy performance:
+
+```ts
+// Transfer ArrayBuffer (sender loses access, uses codec)
+let buffer = new ArrayBuffer(1024 * 1024 * 8);
+let result = await workers({ transfer: [buffer] }).processBuffer(buffer);
+// buffer.byteLength === 0 after transfer
+
+// SharedArrayBuffer (both threads share memory, skips codec)
+let shared = new SharedArrayBuffer(1024);
+let view = new Uint8Array(shared);
+await workers({ transfer: [shared] }).processShared(shared);
+// Both threads can read/write - use Atomics for sync
+
+// OffscreenCanvas (GPU work in worker, skips codec)
+let canvas = document.createElement('canvas');
+let offscreen = canvas.transferControlToOffscreen();
+await workers({ transfer: [offscreen] }).render(offscreen);
+```
+
+**Note:** `SharedArrayBuffer` and `OffscreenCanvas` skip msgpack serialization for maximum performance. Regular `ArrayBuffer` transfers still use the codec but with zero-copy transfer.
 
 Workers can dispatch typed events to the main thread.
 
@@ -288,6 +310,7 @@ let action = (arg: string, { dispatch }: WorkerContext<Events>) => {
 - **Type-safe** - Full TypeScript inference for methods, args, returns, and events
 - **Proxy API** - Chain paths like `workers().namespace.method()`
 - **Automatic serialization** - msgpack encoding/decoding handled internally
+- **Transferables** - Zero-copy ArrayBuffer, SharedArrayBuffer, OffscreenCanvas support
 - **Auto pooling** - Workers created on-demand, recycled automatically
 - **Task queue** - Backpressure handling when workers busy
 - **Cancellation** - AbortSignal support for task cancellation

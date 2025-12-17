@@ -38,6 +38,7 @@ type ProxyTarget<T> = {
 type ScheduleOptions = {
     signal?: AbortSignal;
     timeout?: number;
+    transfer?: Transferable[];
 };
 
 type Task = {
@@ -48,6 +49,7 @@ type Task = {
     signal?: AbortSignal;
     timeout?: number;
     timeoutId?: ReturnType<typeof setTimeout>;
+    transfer?: Transferable[];
     values: any[];
 };
 
