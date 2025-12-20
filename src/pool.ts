@@ -242,35 +242,33 @@ class Pool {
         values: any[],
         options?: ScheduleOptions
     ): TaskPromise<T, E> {
-        let promise = new TaskPromise<T, E>((res, rej) => {
-                resolve = res;
-                reject = rej;
-            }),
-            reject!: (reason: any) => void,
-            resolve!: (value: T) => void;
-
-        if (this.cleanup) {
-            reject(new Error('@esportsplus/workers: pool is shutting down'));
-            return promise;
-        }
-
-        let task: Task = {
+        let resolve: (value: T) => void,
+            reject: (reason: any) => void,
+            task: Task = {
                 aborted: false,
                 path,
-                promise,
-                reject,
-                resolve,
+                promise: new TaskPromise<T, E>((res, rej) => {
+                    resolve = res;
+                    reject = rej;
+                }),
+                reject: reject!,
+                resolve: resolve!,
                 signal: options?.signal,
                 timeout: options?.timeout,
                 uuid: uuid(),
                 values
             };
 
+        if (this.cleanup) {
+            task.reject(new Error('@esportsplus/workers: pool is shutting down'));
+            return task.promise;
+        }
+
         // Setup abort handler
         if (task.signal) {
             if (task.signal.aborted) {
-                reject(new Error('@esportsplus/workers: task aborted'));
-                return promise;
+                task.reject(new Error('@esportsplus/workers: task aborted'));
+                return task.promise;
             }
 
             task.signal.addEventListener('abort', () => {
@@ -289,7 +287,7 @@ class Pool {
                     }
                 }
 
-                reject(new Error('@esportsplus/workers: task aborted'));
+                task.reject(new Error('@esportsplus/workers: task aborted'));
             }, { once: true });
         }
 
@@ -308,7 +306,7 @@ class Pool {
             this.queue.add(task);
         }
 
-        return promise;
+        return task.promise;
     }
 
     shutdown(): Promise<void> {
