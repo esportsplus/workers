@@ -1,13 +1,12 @@
 {
     "author": "ICJR",
     "dependencies": {
-        "@esportsplus/queue": "^0.2.0",
-        "msgpackr": "^1.11.5"
+        "@esportsplus/queue": "^0.2.0"
     },
     "description": "Web worker pool",
     "devDependencies": {
         "@esportsplus/typescript": "^0.10.2",
-        "@types/node": "^25.0.1"
+        "@types/node": "^25.0.3"
     },
     "main": "./build/index.js",
     "name": "@esportsplus/workers",

@@ -1,6 +1,7 @@
 import queue from '@esportsplus/queue';
-import { decode, encode } from './codec';
-import { Infer, PoolOptions, PoolStats, ProxyTarget, ScheduleOptions, Task, WorkerLike } from './types';
+import { collectTransferables } from './transfer';
+import { TaskPromise } from './task';
+import { InferWithEvents, PoolOptions, PoolStats, ProxyTarget, ScheduleOptions, Task, WorkerLike } from './types';
 
 
 const IS_NODE = typeof process !== 'undefined' && process.versions?.node;
@@ -40,16 +41,17 @@ class NodeWorkerWrapper implements WorkerLike {
     }
 }
 
-class Pool<E extends Record<string, any> = Record<string, any>> {
+class Pool {
     private available: WorkerLike[] = [];
     private cleanup: (() => void) | null = null;
     private completed = 0;
     private idleTimeout: number;
     private idleTimers = new Map<WorkerLike, ReturnType<typeof setTimeout>>();
     private limit: number;
-    private listeners = new Map<keyof E, Set<Function>>();
+    private nextTaskId = 1;
     private pending = new Map<WorkerLike, Task>();
     private queue: ReturnType<typeof queue<Task>>;
+    private tasks = new Map<number, Task>();
     private url: string;
     private workers: WorkerLike[] = [];
 
@@ -90,6 +92,7 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
             if (task) {
                 this.clearTaskTimeout(task);
                 this.pending.delete(worker);
+                this.tasks.delete(task.id);
                 task.reject(e.message);
             }
 
@@ -100,27 +103,35 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
         worker.onmessage = (e) => {
             let data = e.data;
 
-            // Handle raw (non-encoded) messages for SAB/OffscreenCanvas
-            if (data?.raw) {
-                data = data.result;
-            }
-            else if (data instanceof ArrayBuffer) {
-                data = decode(data);
-            }
-
-            // Custom event from worker
-            if (data?.__event) {
-                this.emit(data.__event, data.__data);
+            if (!data || typeof data.id !== 'number') {
                 return;
             }
 
-            let task = this.pending.get(worker);
+            let task = this.tasks.get(data.id);
 
-            if (task) {
-                this.clearTaskTimeout(task);
-                this.pending.delete(worker);
-                this.completed++;
-                task.resolve(data);
+            if (!task) {
+                return;
+            }
+
+            // Event dispatch from worker
+            if (data.event) {
+                task.promise.dispatch(data.event, data.data);
+                return;
+            }
+
+            // Task completion
+            this.clearTaskTimeout(task);
+            this.pending.delete(worker);
+            this.tasks.delete(data.id);
+            this.completed++;
+
+            if (data.error) {
+                task.reject(typeof data.error === 'object'
+                    ? Object.assign(new Error(data.error.message), { stack: data.error.stack })
+                    : new Error(data.error));
+            }
+            else {
+                task.resolve(data.result);
             }
 
             this.markAvailable(worker);
@@ -146,6 +157,7 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
 
         this.clearIdleTimer(worker);
         this.pending.set(worker, task);
+        this.tasks.set(task.id, task);
 
         // Setup timeout
         if (task.timeout && task.timeout > 0) {
@@ -153,6 +165,7 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
                 () => {
                     if (this.pending.has(worker)) {
                         this.pending.delete(worker);
+                        this.tasks.delete(task.id);
                         task.reject(new Error(`@esportsplus/workers: task timed out after ${task.timeout}ms`));
                         this.replaceWorker(worker);
                         this.available.push(this.createWorker());
@@ -163,38 +176,7 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
             );
         }
 
-        // Check if any transfer contains SharedArrayBuffer or OffscreenCanvas
-        let raw = false,
-            transfer = task.transfer || [];
-
-        for (let i = 0, n = transfer.length; i < n; i++) {
-            let item = transfer[i];
-
-            if (item instanceof SharedArrayBuffer || (typeof OffscreenCanvas !== 'undefined' && item instanceof OffscreenCanvas)) {
-                raw = true;
-                break;
-            }
-        }
-
-        if (raw) {
-            // Skip codec for SAB/OffscreenCanvas - use structured clone directly
-            worker.postMessage({ action: [task.path, task.values], raw: true }, transfer);
-        }
-        else {
-            let buffer = encode({ action: [task.path, task.values] });
-
-            worker.postMessage(buffer, [buffer, ...transfer]);
-        }
-    }
-
-    private emit<K extends keyof E>(event: K, data: E[K]) {
-        let listeners = this.listeners.get(event);
-
-        if (listeners) {
-            for (let fn of listeners) {
-                fn(data);
-            }
-        }
+        worker.postMessage({ id: task.id, path: task.path, args: task.values }, collectTransferables(task.values));
     }
 
     private processQueue() {
@@ -243,89 +225,89 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
             this.workers.splice(index, 1);
         }
 
-        let availableIndex = this.available.indexOf(worker);
+        index = this.available.indexOf(worker);
 
-        if (availableIndex !== -1) {
-            this.available.splice(availableIndex, 1);
+        if (index !== -1) {
+            this.available.splice(index, 1);
         }
 
         worker.terminate();
     }
 
 
-    off<K extends keyof E>(event: K, fn: (data: E[K]) => void) {
-        this.listeners.get(event)?.delete(fn);
-    }
+    schedule<T, E extends Record<string, unknown>>(
+        path: string,
+        values: any[],
+        options?: ScheduleOptions
+    ): TaskPromise<T, E> {
+        let promise = new TaskPromise<T, E>((res, rej) => {
+                resolve = res;
+                reject = rej;
+            }),
+            reject!: (reason: any) => void,
+            resolve!: (value: T) => void,
+            taskId = this.nextTaskId++;
 
-    on<K extends keyof E>(event: K, fn: (data: E[K]) => void) {
-        let listeners = this.listeners.get(event);
-
-        if (!listeners) {
-            this.listeners.set(event, listeners = new Set());
+        if (this.cleanup) {
+            reject(new Error('@esportsplus/workers: pool is shutting down'));
+            return promise;
         }
 
-        listeners.add(fn);
-    }
+        let task: Task = {
+                aborted: false,
+                id: taskId,
+                path,
+                promise,
+                reject,
+                resolve,
+                signal: options?.signal,
+                timeout: options?.timeout,
+                values
+            };
 
-    schedule(path: string, values: any[], options?: { signal?: AbortSignal; timeout?: number; transfer?: Transferable[] }): Promise<any> {
-        return new Promise((resolve, reject) => {
-            if (this.cleanup) {
-                reject(new Error('@esportsplus/workers: pool is shutting down'));
-                return;
+        // Setup abort handler
+        if (task.signal) {
+            if (task.signal.aborted) {
+                reject(new Error('@esportsplus/workers: task aborted'));
+                return promise;
             }
 
-            let task: Task = {
-                    aborted: false,
-                    path,
-                    reject,
-                    resolve,
-                    signal: options?.signal,
-                    timeout: options?.timeout,
-                    transfer: options?.transfer,
-                    values
-                };
+            task.signal.addEventListener('abort', () => {
+                task.aborted = true;
 
-            // Setup abort handler
-            if (task.signal) {
-                if (task.signal.aborted) {
-                    reject(new Error('@esportsplus/workers: task aborted'));
-                    return;
+                // If task is pending (running), terminate worker and replace
+                for (let [worker, pendingTask] of this.pending) {
+                    if (pendingTask === task) {
+                        this.clearTaskTimeout(task);
+                        this.pending.delete(worker);
+                        this.tasks.delete(task.id);
+                        this.replaceWorker(worker);
+                        this.available.push(this.createWorker());
+                        this.processQueue();
+                        break;
+                    }
                 }
 
-                task.signal.addEventListener('abort', () => {
-                    task.aborted = true;
+                reject(new Error('@esportsplus/workers: task aborted'));
+            }, { once: true });
+        }
 
-                    // If task is pending (running), terminate worker and replace
-                    for (let [worker, pendingTask] of this.pending) {
-                        if (pendingTask === task) {
-                            this.clearTaskTimeout(task);
-                            this.pending.delete(worker);
-                            this.replaceWorker(worker);
-                            this.available.push(this.createWorker());
-                            this.processQueue();
-                            break;
-                        }
-                    }
+        let worker = this.available.pop();
 
-                    reject(new Error('@esportsplus/workers: task aborted'));
-                }, { once: true });
-            }
+        // Recreate worker if all were terminated due to idle timeout
+        if (!worker && this.workers.length < this.limit) {
+            worker = this.createWorker();
+        }
 
-            let worker = this.available.pop();
+        if (worker) {
+            this.clearIdleTimer(worker);
+            this.dispatch(worker, task);
+        }
+        else {
+            this.queue.add(task);
+        }
 
-            // Recreate worker if all were terminated due to idle timeout
-            if (!worker && this.workers.length < this.limit) {
-                worker = this.createWorker();
-            }
-
-            if (worker) {
-                this.clearIdleTimer(worker);
-                this.dispatch(worker, task);
-            }
-            else {
-                this.queue.add(task);
-            }
-        });
+        return promise;
     }
 
     shutdown(): Promise<void> {
@@ -354,6 +336,7 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
 
             this.available.length = 0;
             this.workers.length = 0;
+            this.tasks.clear();
 
             return Promise.resolve();
         }
@@ -367,6 +350,7 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
 
                 this.available.length = 0;
                 this.workers.length = 0;
+                this.tasks.clear();
 
                 resolve();
             };
@@ -386,8 +370,8 @@ class Pool<E extends Record<string, any> = Record<string, any>> {
 
 
 export default <T extends Record<string, any>, E extends Record<string, any> = Record<string, any>>(url: string, options?: PoolOptions) => {
-    let pool = new Pool<E>(url, options),
-        proxy = (options?: ScheduleOptions): Infer<T> => new Proxy(
+    let pool = new Pool(url, options),
+        proxy = (options?: ScheduleOptions): InferWithEvents<T, E> => new Proxy(
             Object.assign(() => {}, { options, path: '' }) as ProxyTarget<T>,
             {
                 apply: (target: ProxyTarget<T>, __: any, values: any[]) => {
@@ -411,11 +395,9 @@ export default <T extends Record<string, any>, E extends Record<string, any> = R
                 },
                 set: () => true
             }
-        ) as unknown as Infer<T>;
+        ) as unknown as InferWithEvents<T, E>;
 
     return Object.assign(proxy, {
-        off: <K extends keyof E>(event: K, fn: (data: E[K]) => void) => pool.off(event, fn),
-        on: <K extends keyof E>(event: K, fn: (data: E[K]) => void) => pool.on(event, fn),
         shutdown: () => pool.shutdown(),
         stats: () => pool.stats()
     });

@@ -1,5 +1,8 @@
+import { TaskPromise } from './task';
+
+
 interface Actions {
-    [key: PropertyKey]: Actions | (<T>(...args: unknown[]) => T)
+    [key: PropertyKey]: Actions | (<A, T>(...args: A[]) => T)
 };
 
 type Infer<T> =
@@ -11,10 +14,19 @@ type Infer<T> =
                 ? { [K in keyof T]: Infer<T[K]> }
                 : never;
 
+type InferWithEvents<T, E extends Record<string, Record<string, unknown>>> = {
+    [K in keyof T]: T[K] extends (...args: infer A) => Promise<infer R>
+        ? (...args: A) => TaskPromise<R, K extends keyof E ? E[K] : Record<string, unknown>>
+        : T[K] extends (...args: infer A) => infer R
+            ? (...args: A) => TaskPromise<Awaited<R>, K extends keyof E ? E[K] : Record<string, unknown>>
+            : T[K] extends Record<string, any>
+                ? InferWithEvents<T[K], E>
+                : never;
+};
+
 type PoolOptions = {
     idleTimeout?: number;
     limit?: number;
-    maxQueue?: number;
 };
 
 type PoolStats = {
@@ -25,7 +37,7 @@ type PoolStats = {
     workers: number;
 };
 
-type WorkerContext<E extends Record<string, any> = Record<string, any>> = {
+type WorkerContext<E extends Record<string, unknown> = Record<string, unknown>> = {
     dispatch: <K extends keyof E>(event: K, data: E[K]) => void;
 };
 
@@ -38,18 +50,18 @@ type ProxyTarget<T> = {
 type ScheduleOptions = {
     signal?: AbortSignal;
     timeout?: number;
-    transfer?: Transferable[];
 };
 
 type Task = {
     aborted: boolean;
+    id: number;
     path: string;
+    promise: TaskPromise<any, any>;
     reject: (reason: any) => void;
     resolve: (value: any) => void;
     signal?: AbortSignal;
     timeout?: number;
     timeoutId?: ReturnType<typeof setTimeout>;
-    transfer?: Transferable[];
     values: any[];
 };
 
@@ -68,7 +80,7 @@ type WorkerPort = {
 
 export type {
     Actions,
-    Infer,
+    Infer, InferWithEvents,
     PoolOptions, PoolStats, ProxyTarget,
     ScheduleOptions,
     Task,

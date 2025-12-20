@@ -1,4 +1,4 @@
-import { decode, encode } from './codec';
+import { collectTransferables } from './transfer';
 import { Actions, WorkerContext, WorkerPort } from './types';
 
 
@@ -53,50 +53,48 @@ function flatten(obj: Actions, prefix: string, map: Map<string, Function>): Map<
 }
 
 
-export default <E extends Record<string, any> = Record<string, any>>(actions: Actions) => {
-    let context: WorkerContext<E> = {
-            dispatch: (event, data) => {
-                let buffer = encode({ __event: event, __data: data });
-
-                worker.postMessage(buffer, [buffer]);
-            }
-        },
-        map = flatten(actions, '', new Map()),
+export default <E extends Record<string, unknown> = Record<string, unknown>>(actions: Actions) => {
+    let map = flatten(actions, '', new Map()),
         worker = adapter();
 
     worker.onmessage = async (e) => {
-        let data = e.data,
-            raw = false;
+        let data = e.data;
 
-        if (data instanceof ArrayBuffer) {
-            data = decode(data);
-        }
-        else if (data?.raw) {
-            raw = true;
-        }
-
-        if (!data?.action) {
+        if (!data || typeof data.id !== 'number' || !data.path) {
             return;
         }
 
-        let [path, values] = data.action,
+        let { id, path, args } = data,
             action = map.get(path);
 
         if (!action) {
-            throw new Error(`@esportsplus/workers: path does not exist '${path}'`);
+            worker.postMessage({
+                id,
+                error: `@esportsplus/workers: path does not exist '${path}'`
+            });
+            return;
         }
 
-        let result = await action(...values, context);
+        let context: WorkerContext<E> = {
+                dispatch: (event, eventData) => {
+                    worker.postMessage({ id, event, data: eventData }, collectTransferables(eventData));
+                }
+            };
 
-        if (raw) {
-            // Skip codec for SAB/OffscreenCanvas responses
-            worker.postMessage({ result, raw: true });
+        try {
+            let result = await action.call(context, ...args);
+
+            worker.postMessage({ id, result }, collectTransferables(result));
         }
-        else {
-            let buffer = encode(result);
+        catch (err) {
+            let error = err instanceof Error
+                ? { message: err.message, stack: err.stack }
+                : String(err);
 
-            worker.postMessage(buffer, [buffer]);
+            worker.postMessage({ id, error });
         }
     };
 };
+
+
 export type { Actions };
