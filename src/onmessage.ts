@@ -69,8 +69,8 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
 
         if (!action) {
             worker.postMessage({
+                error: `@esportsplus/workers: path does not exist '${path}'`,
                 uuid,
-                error: `@esportsplus/workers: path does not exist '${path}'`
             });
             return;
         }
