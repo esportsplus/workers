@@ -2,6 +2,7 @@ import queue from '@esportsplus/queue';
 import { collectTransferables } from './transfer';
 import { TaskPromise } from './task';
 import { InferWithEvents, PoolOptions, PoolStats, ProxyTarget, ScheduleOptions, Task, WorkerLike } from './types';
+import { uuid, type UUID } from '@esportsplus/utilities';
 
 
 const IS_NODE = typeof process !== 'undefined' && process.versions?.node;
@@ -48,10 +49,9 @@ class Pool {
     private idleTimeout: number;
     private idleTimers = new Map<WorkerLike, ReturnType<typeof setTimeout>>();
     private limit: number;
-    private nextTaskId = 1;
     private pending = new Map<WorkerLike, Task>();
     private queue: ReturnType<typeof queue<Task>>;
-    private tasks = new Map<number, Task>();
+    private tasks = new Map<UUID, Task>();
     private url: string;
     private workers: WorkerLike[] = [];
 
@@ -92,7 +92,7 @@ class Pool {
             if (task) {
                 this.clearTaskTimeout(task);
                 this.pending.delete(worker);
-                this.tasks.delete(task.id);
+                this.tasks.delete(task.uuid);
                 task.reject(e.message);
             }
 
@@ -103,11 +103,11 @@ class Pool {
         worker.onmessage = (e) => {
             let data = e.data;
 
-            if (!data || typeof data.id !== 'number') {
+            if (!data || !data.uuid) {
                 return;
             }
 
-            let task = this.tasks.get(data.id);
+            let task = this.tasks.get(data.uuid);
 
             if (!task) {
                 return;
@@ -122,7 +122,7 @@ class Pool {
             // Task completion
             this.clearTaskTimeout(task);
             this.pending.delete(worker);
-            this.tasks.delete(data.id);
+            this.tasks.delete(data.uuid);
             this.completed++;
 
             if (data.error) {
@@ -157,7 +157,7 @@ class Pool {
 
         this.clearIdleTimer(worker);
         this.pending.set(worker, task);
-        this.tasks.set(task.id, task);
+        this.tasks.set(task.uuid, task);
 
         // Setup timeout
         if (task.timeout && task.timeout > 0) {
@@ -165,7 +165,7 @@ class Pool {
                 () => {
                     if (this.pending.has(worker)) {
                         this.pending.delete(worker);
-                        this.tasks.delete(task.id);
+                        this.tasks.delete(task.uuid);
                         task.reject(new Error(`@esportsplus/workers: task timed out after ${task.timeout}ms`));
                         this.replaceWorker(worker);
                         this.available.push(this.createWorker());
@@ -176,7 +176,7 @@ class Pool {
             );
         }
 
-        worker.postMessage({ id: task.id, path: task.path, args: task.values }, collectTransferables(task.values));
+        worker.postMessage({ args: task.values, path: task.path, uuid: task.uuid }, collectTransferables(task.values));
     }
 
     private processQueue() {
@@ -245,8 +245,7 @@ class Pool {
                 reject = rej;
             }),
             reject!: (reason: any) => void,
-            resolve!: (value: T) => void,
-            taskId = this.nextTaskId++;
+            resolve!: (value: T) => void;
 
         if (this.cleanup) {
             reject(new Error('@esportsplus/workers: pool is shutting down'));
@@ -255,13 +254,13 @@ class Pool {
 
         let task: Task = {
                 aborted: false,
-                id: taskId,
                 path,
                 promise,
                 reject,
                 resolve,
                 signal: options?.signal,
                 timeout: options?.timeout,
+                uuid: uuid(),
                 values
             };
 
@@ -280,7 +279,7 @@ class Pool {
                     if (pendingTask === task) {
                         this.clearTaskTimeout(task);
                         this.pending.delete(worker);
-                        this.tasks.delete(task.id);
+                        this.tasks.delete(task.uuid);
                         this.replaceWorker(worker);
                         this.available.push(this.createWorker());
                         this.processQueue();

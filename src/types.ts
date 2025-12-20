@@ -1,3 +1,4 @@
+import { UUID } from '@esportsplus/utilities';
 import { TaskPromise } from './task';
 
 
@@ -54,7 +55,6 @@ type ScheduleOptions = {
 
 type Task = {
     aborted: boolean;
-    id: number;
     path: string;
     promise: TaskPromise<any, any>;
     reject: (reason: any) => void;
@@ -62,6 +62,7 @@ type Task = {
     signal?: AbortSignal;
     timeout?: number;
     timeoutId?: ReturnType<typeof setTimeout>;
+    uuid: UUID;
     values: any[];
 };
 

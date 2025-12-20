@@ -1,7 +1,8 @@
 {
     "author": "ICJR",
     "dependencies": {
-        "@esportsplus/queue": "^0.2.0"
+        "@esportsplus/queue": "^0.2.0",
+        "@esportsplus/utilities": "^0.27.2"
     },
     "description": "Web worker pool",
     "devDependencies": {

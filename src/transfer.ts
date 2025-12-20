@@ -1,6 +1,6 @@
-function collectTransferables(obj: unknown): Transferable[] {
+function collectTransferables(value: unknown): Transferable[] {
     let result: Transferable[] = [],
-        stack = [obj];
+        stack = [value];
 
     while (stack.length > 0) {
         let current = stack.pop();
@@ -26,10 +26,10 @@ function collectTransferables(obj: unknown): Transferable[] {
         }
         else {
             for (let key in current) {
-                let val = (current as Record<string, unknown>)[key];
+                let value = (current as Record<string, unknown>)[key];
 
-                if (val && typeof val === 'object') {
-                    stack.push(val);
+                if (value && typeof value === 'object') {
+                    stack.push(value);
                 }
             }
         }

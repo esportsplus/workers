@@ -60,38 +60,38 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
     worker.onmessage = async (e) => {
         let data = e.data;
 
-        if (!data || typeof data.id !== 'number' || !data.path) {
+        if (!data || !data.uuid || !data.path) {
             return;
         }
 
-        let { id, path, args } = data,
+        let { args, path, uuid } = data,
             action = map.get(path);
 
         if (!action) {
             worker.postMessage({
-                id,
+                uuid,
                 error: `@esportsplus/workers: path does not exist '${path}'`
             });
             return;
         }
 
         let context: WorkerContext<E> = {
-                dispatch: (event, eventData) => {
-                    worker.postMessage({ id, event, data: eventData }, collectTransferables(eventData));
+                dispatch: (event, data) => {
+                    worker.postMessage({ data, event, uuid }, collectTransferables(data));
                 }
             };
 
         try {
             let result = await action.call(context, ...args);
 
-            worker.postMessage({ id, result }, collectTransferables(result));
+            worker.postMessage({ result, uuid }, collectTransferables(result));
         }
         catch (err) {
             let error = err instanceof Error
                 ? { message: err.message, stack: err.stack }
                 : String(err);
 
-            worker.postMessage({ id, error });
+            worker.postMessage({ error, uuid });
         }
     };
 };
