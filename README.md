@@ -1,6 +1,6 @@
 # @esportsplus/workers
 
-Lightweight, type-safe worker pool for **Browser** and **Node.js**. Features proxy-based API, automatic msgpack serialization, task cancellation, timeouts, and typed worker-to-pool events.
+Lightweight, type-safe worker pool for **Browser** and **Node.js**. Features proxy-based API, automatic transferable detection, task cancellation, timeouts, and typed per-task events.
 
 ## Installation
 
@@ -18,8 +18,12 @@ import { onmessage } from '@esportsplus/workers';
 
 let actions = {
     math: {
-        add: (a: number, b: number) => a + b,
-        multiply: (a: number, b: number) => a * b
+        add(a: number, b: number) {
+            return a + b;
+        },
+        multiply(a: number, b: number) {
+            return a * b;
+        }
     },
     async fetchData(url: string) {
         let response = await fetch(url);
@@ -41,7 +45,7 @@ import type { Actions } from './worker';
 
 let workers = pool<Actions>('/worker.js');
 
-// Call methods - all return Promises
+// Call methods - all return TaskPromise (extends Promise)
 let sum = await workers().math.add(1, 2);           // 3
 let product = await workers().math.multiply(3, 4);  // 12
 let data = await workers().fetchData('https://api.example.com');
@@ -100,31 +104,27 @@ let result = await workers({
 }).processData(largeDataset);
 ```
 
-### Transferables
+## Transferables
 
-Transfer `ArrayBuffer`, `SharedArrayBuffer`, or `OffscreenCanvas` for zero-copy performance:
+Transferable objects (`ArrayBuffer`, `MessagePort`, `ImageBitmap`, `OffscreenCanvas`) are **automatically detected** and transferred for zero-copy performance. No manual configuration required.
 
 ```ts
-// Transfer ArrayBuffer (sender loses access, uses codec)
+// ArrayBuffer - automatically transferred (sender loses access)
 let buffer = new ArrayBuffer(1024 * 1024 * 8);
-let result = await workers({ transfer: [buffer] }).processBuffer(buffer);
+let result = await workers().processBuffer(buffer);
 // buffer.byteLength === 0 after transfer
 
-// SharedArrayBuffer (both threads share memory, skips codec)
-let shared = new SharedArrayBuffer(1024);
-let view = new Uint8Array(shared);
-await workers({ transfer: [shared] }).processShared(shared);
-// Both threads can read/write - use Atomics for sync
-
-// OffscreenCanvas (GPU work in worker, skips codec)
+// OffscreenCanvas - automatically transferred
 let canvas = document.createElement('canvas');
 let offscreen = canvas.transferControlToOffscreen();
-await workers({ transfer: [offscreen] }).render(offscreen);
+await workers().render(offscreen);
 ```
 
-**Note:** `SharedArrayBuffer` and `OffscreenCanvas` skip msgpack serialization for maximum performance. Regular `ArrayBuffer` transfers still use the codec but with zero-copy transfer.
+The library recursively scans arguments and return values to find transferables in nested objects and arrays.
 
-Workers can dispatch typed events to the main thread.
+## Worker Events
+
+Workers can dispatch typed events back to the main thread during task execution. Events are received on the `TaskPromise` returned by each method call.
 
 ### 1. Define Event Types
 
@@ -140,21 +140,23 @@ export type { Events };
 
 ### 2. Dispatch from Worker
 
+Access `dispatch` via `this` context in your action functions:
+
 ```ts
 // worker.ts
 import { onmessage, WorkerContext } from '@esportsplus/workers';
 import type { Events } from './types';
 
 let actions = {
-    async processItems(items: string[], { dispatch }: WorkerContext<Events>) {
+    async processItems(this: WorkerContext<Events>, items: string[]) {
         for (let i = 0, n = items.length; i < n; i++) {
-            dispatch('progress', { percent: (i / n) * 100, message: `Processing ${items[i]}` });
-            dispatch('log', { level: 'info', text: `Item ${i + 1} of ${n}` });
+            this.dispatch('progress', { percent: (i / n) * 100, message: `Processing ${items[i]}` });
+            this.dispatch('log', { level: 'info', text: `Item ${i + 1} of ${n}` });
 
             // ... processing ...
         }
 
-        dispatch('progress', { percent: 100, message: 'Complete' });
+        this.dispatch('progress', { percent: 100, message: 'Complete' });
 
         return { processed: items.length };
     }
@@ -165,7 +167,9 @@ onmessage<Events>(actions);
 export type Actions = typeof actions;
 ```
 
-### 3. Listen in Main Thread
+### 3. Listen on Task Promise
+
+Events are scoped to individual task executions via the `TaskPromise.on()` method:
 
 ```ts
 // main.ts
@@ -175,20 +179,17 @@ import type { Events } from './types';
 
 let workers = pool<Actions, Events>('/worker.js');
 
-// Subscribe to events (fully typed)
-workers.on('progress', (data) => {
-    console.log(`${data.percent}%: ${data.message}`);
-});
+// Subscribe to events on the task promise (chainable)
+let result = await workers()
+    .processItems(['a', 'b', 'c'])
+    .on('progress', (data) => {
+        console.log(`${data.percent}%: ${data.message}`);
+    })
+    .on('log', (data) => {
+        console.log(`[${data.level}] ${data.text}`);
+    });
 
-workers.on('log', (data) => {
-    console.log(`[${data.level}] ${data.text}`);
-});
-
-// Execute task
-await workers().processItems(['a', 'b', 'c']);
-
-// Unsubscribe
-workers.off('progress', handler);
+console.log(result); // { processed: 3 }
 ```
 
 ## Pool Management
@@ -238,7 +239,7 @@ onmessage(actions); // Auto-detects self (browser) or parentPort (node)
 
 ## Serialization
 
-All data is automatically serialized using **msgpack** - faster and smaller than JSON. You work with plain JavaScript values; the library handles encoding/decoding internally.
+Data is serialized using the **structured clone algorithm** (native to `postMessage`). Transferable objects are automatically detected and transferred for zero-copy performance.
 
 ```ts
 // Main thread - pass plain values
@@ -246,13 +247,13 @@ let result = await workers().process({ name: 'test', values: [1, 2, 3] });
 
 // Worker - receives plain values, returns plain values
 let actions = {
-    process: (data: { name: string; values: number[] }) => {
+    process(data: { name: string; values: number[] }) {
         return { sum: data.values.reduce((a, b) => a + b, 0) };
     }
 };
 ```
 
-Supported types: primitives, objects, arrays, Date, Map, Set, Uint8Array.
+Supported types: primitives, objects, arrays, Date, Map, Set, ArrayBuffer, TypedArrays, and more (see [structured clone docs](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm)).
 
 ## API Reference
 
@@ -269,14 +270,12 @@ Creates a worker pool.
 ```ts
 let workers = pool<Actions, Events>(url, options);
 
-// Execute tasks
+// Execute tasks - returns TaskPromise
 workers(taskOptions?).path.to.method(args);
 
 // Pool methods
-workers.on(event, handler);    // Subscribe to event
-workers.off(event, handler);   // Unsubscribe
-workers.stats();               // Get pool statistics
-workers.shutdown();            // Graceful shutdown
+workers.stats();     // Get pool statistics
+workers.shutdown();  // Graceful shutdown
 ```
 
 ### `onmessage<E>(actions)`
@@ -290,18 +289,35 @@ Sets up worker-side message handler.
 onmessage<Events>(actions);
 ```
 
+### `TaskPromise<T, E>`
+
+Extended Promise returned by task execution. Supports event subscriptions.
+
+```ts
+let promise = workers().someMethod(args);
+
+// Subscribe to events (chainable)
+promise.on('eventName', (data) => { ... });
+
+// Still a regular Promise
+let result = await promise;
+```
+
 ### `WorkerContext<E>`
 
-Type for the context object passed to worker actions:
+Type for the `this` context available in worker actions:
 
 ```ts
 type WorkerContext<E> = {
     dispatch: <K extends keyof E>(event: K, data: E[K]) => void;
 };
 
-// Usage in action
-let action = (arg: string, { dispatch }: WorkerContext<Events>) => {
-    dispatch('eventName', eventData);
+// Usage in action (declare this type for TypeScript)
+let actions = {
+    myAction(this: WorkerContext<Events>, arg: string) {
+        this.dispatch('eventName', eventData);
+        return result;
+    }
 };
 ```
 
@@ -309,13 +325,12 @@ let action = (arg: string, { dispatch }: WorkerContext<Events>) => {
 
 - **Type-safe** - Full TypeScript inference for methods, args, returns, and events
 - **Proxy API** - Chain paths like `workers().namespace.method()`
-- **Automatic serialization** - msgpack encoding/decoding handled internally
-- **Transferables** - Zero-copy ArrayBuffer, SharedArrayBuffer, OffscreenCanvas support
+- **Auto transferables** - ArrayBuffer, MessagePort, ImageBitmap, OffscreenCanvas detected automatically
 - **Auto pooling** - Workers created on-demand, recycled automatically
 - **Task queue** - Backpressure handling when workers busy
 - **Cancellation** - AbortSignal support for task cancellation
 - **Timeouts** - Per-task timeout configuration
-- **Events** - Typed worker-to-main communication
+- **Per-task events** - Typed worker-to-main communication scoped to each task
 - **Idle timeout** - Auto-terminate unused workers
 - **Crash recovery** - Failed workers replaced automatically
 - **Cross-platform** - Browser Web Workers + Node.js worker_threads

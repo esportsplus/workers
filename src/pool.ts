@@ -163,14 +163,16 @@ class Pool {
         if (task.timeout && task.timeout > 0) {
             task.timeoutId = setTimeout(
                 () => {
-                    if (this.pending.has(worker)) {
-                        this.pending.delete(worker);
-                        this.tasks.delete(task.uuid);
-                        task.reject(new Error(`@esportsplus/workers: task timed out after ${task.timeout}ms`));
-                        this.replaceWorker(worker);
-                        this.available.push(this.createWorker());
-                        this.processQueue();
+                    if (!this.pending.has(worker)) {
+                        return;
                     }
+
+                    this.pending.delete(worker);
+                    this.tasks.delete(task.uuid);
+                    task.reject(new Error(`@esportsplus/workers: task timed out after ${task.timeout}ms`));
+                    this.replaceWorker(worker);
+                    this.available.push(this.createWorker());
+                    this.processQueue();
                 },
                 task.timeout
             );
