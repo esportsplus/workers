@@ -3,7 +3,7 @@ import { TaskPromise } from './task';
 
 
 interface Actions {
-    [key: PropertyKey]: Actions | (<A, T>(...args: A[]) => T)
+    [key: PropertyKey]: Actions | ((...args: any[]) => any)
 };
 
 type Infer<T> =
@@ -38,10 +38,6 @@ type PoolStats = {
     workers: number;
 };
 
-type WorkerContext<E extends Record<string, unknown> = Record<string, unknown>> = {
-    dispatch: <K extends keyof E>(event: K, data: E[K]) => void;
-};
-
 type ProxyTarget<T> = {
     (): T;
     options?: ScheduleOptions;
@@ -64,6 +60,10 @@ type Task = {
     timeoutId?: ReturnType<typeof setTimeout>;
     uuid: UUID;
     values: any[];
+};
+
+type WorkerContext<E extends Record<string, unknown> = Record<string, unknown>> = {
+    dispatch: <K extends keyof E>(event: K, data: E[K]) => void;
 };
 
 type WorkerLike = {
