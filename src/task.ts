@@ -1,5 +1,6 @@
 class TaskPromise<T, E extends Record<string, unknown> = Record<string, unknown>> extends Promise<T> {
     private listeners: Record<string, ((data: unknown) => void)[]> | null = null;
+    private releaseHandler: (() => void) | null = null;
 
 
     static get [Symbol.species]() {
@@ -25,6 +26,14 @@ class TaskPromise<T, E extends Record<string, unknown> = Record<string, unknown>
         );
 
         return this;
+    }
+
+    release(): void {
+        this.releaseHandler?.();
+    }
+
+    setReleaseHandler(handler: () => void): void {
+        this.releaseHandler = handler;
     }
 }
 

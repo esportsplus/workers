@@ -55,15 +55,19 @@ type Task = {
     promise: TaskPromise<any, any>;
     reject: (reason: any) => void;
     resolve: (value: any) => void;
+    retained: boolean;
     signal?: AbortSignal;
     timeout?: number;
     timeoutId?: ReturnType<typeof setTimeout>;
     uuid: UUID;
     values: any[];
+    worker?: WorkerLike;
 };
 
 type WorkerContext<E extends Record<string, unknown> = Record<string, unknown>> = {
     dispatch: <K extends keyof E>(event: K, data: E[K]) => void;
+    release: (result?: unknown) => void;
+    retain: (cleanup?: () => void | unknown) => void;
 };
 
 type WorkerLike = {

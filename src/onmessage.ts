@@ -2,6 +2,9 @@ import { collectTransferables } from './transfer';
 import { Actions, WorkerContext, WorkerPort } from './types';
 
 
+let cleanups = new Map<string, () => void | unknown>();
+
+
 function adapter(): WorkerPort {
     // Browser Web Worker
     if (typeof self !== 'undefined' && typeof self.postMessage === 'function') {
@@ -60,7 +63,38 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
     worker.onmessage = async (e) => {
         let data = e.data;
 
-        if (!data || !data.uuid || !data.path) {
+        if (!data || !data.uuid) {
+            return;
+        }
+
+        // Handle release request from pool
+        if (data.release) {
+            let handler = cleanups.get(data.uuid);
+
+            cleanups.delete(data.uuid);
+
+            if (handler) {
+                try {
+                    let result = handler();
+
+                    worker.postMessage({ result, uuid: data.uuid }, collectTransferables(result));
+                }
+                catch (err) {
+                    let error = err instanceof Error
+                        ? { message: err.message, stack: err.stack }
+                        : String(err);
+
+                    worker.postMessage({ error, uuid: data.uuid });
+                }
+            }
+            else {
+                worker.postMessage({ result: undefined, uuid: data.uuid });
+            }
+
+            return;
+        }
+
+        if (!data.path) {
             return;
         }
 
@@ -75,16 +109,41 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
             return;
         }
 
-        let context: WorkerContext<E> = {
+        let cleanup: (() => void | unknown) | undefined,
+            context: WorkerContext<E> = {
                 dispatch: (event, data) => {
                     worker.postMessage({ data, event, uuid }, collectTransferables(data));
+                },
+                release: (result?) => {
+                    if (released) {
+                        return;
+                    }
+
+                    released = true;
+                    cleanups.delete(uuid);
+                    worker.postMessage({ result, uuid }, collectTransferables(result));
+                },
+                retain: (fn?) => {
+                    retained = true;
+                    cleanup = fn;
                 }
-            };
+            },
+            released = false,
+            retained = false;
 
         try {
             let result = await action.call(context, ...args);
 
-            worker.postMessage({ result, uuid }, collectTransferables(result));
+            if (retained) {
+                if (cleanup) {
+                    cleanups.set(uuid, cleanup);
+                }
+
+                worker.postMessage({ retained: true, uuid });
+            }
+            else {
+                worker.postMessage({ result, uuid }, collectTransferables(result));
+            }
         }
         catch (err) {
             let error = err instanceof Error

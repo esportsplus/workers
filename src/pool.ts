@@ -119,6 +119,17 @@ class Pool {
                 return;
             }
 
+            // Task retained — worker stays bound
+            if (data.retained) {
+                this.clearTaskTimeout(task);
+                task.retained = true;
+                task.worker = worker;
+                task.promise.setReleaseHandler(() => {
+                    worker.postMessage({ release: true, uuid: data.uuid });
+                });
+                return;
+            }
+
             // Task completion
             this.clearTaskTimeout(task);
             this.pending.delete(worker);
@@ -253,6 +264,7 @@ class Pool {
                 }),
                 reject: reject!,
                 resolve: resolve!,
+                retained: false,
                 signal: options?.signal,
                 timeout: options?.timeout,
                 uuid: uuid(),
@@ -323,6 +335,13 @@ class Pool {
         while (task) {
             task.reject(new Error('@esportsplus/workers: pool closing'));
             task = this.queue.next();
+        }
+
+        // Release retained tasks
+        for (let [worker, task] of this.pending) {
+            if (task.retained) {
+                worker.postMessage({ release: true, uuid: task.uuid });
+            }
         }
 
         // If no pending tasks, resolve immediately
