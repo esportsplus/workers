@@ -18,11 +18,11 @@ function adapter(): WorkerPort {
         if (parentPort) {
             return {
                 set onmessage(fn: (e: MessageEvent) => void) {
-                    parentPort.on('message', (data: any) => {
+                    parentPort.on('message', (data: unknown) => {
                         fn({ data } as MessageEvent);
                     });
                 },
-                postMessage: (data: any, transfer?: Transferable[]) => {
+                postMessage: (data: unknown, transfer?: Transferable[]) => {
                     parentPort.postMessage(data, transfer);
                 }
             };

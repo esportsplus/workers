@@ -13,7 +13,7 @@ const MAX_CONCURRENCY = (
 
 
 class NodeWorkerWrapper implements WorkerLike {
-    private worker: any;
+    private worker: { on(event: string, handler: (...args: unknown[]) => void): void; postMessage(data: unknown, transfer?: Transferable[]): void; terminate(): void };
 
 
     constructor(url: string) {
@@ -21,19 +21,19 @@ class NodeWorkerWrapper implements WorkerLike {
     }
 
 
-    set onerror(handler: (e: any) => void) {
-        this.worker.on('error', (err: Error) => {
-            handler({ message: err.message });
+    set onerror(handler: (e: { message?: string }) => void) {
+        this.worker.on('error', (err) => {
+            handler({ message: (err as Error).message });
         });
     }
 
-    set onmessage(handler: (e: any) => void) {
-        this.worker.on('message', (data: any) => {
+    set onmessage(handler: (e: { data: unknown }) => void) {
+        this.worker.on('message', (data) => {
             handler({ data });
         });
     }
 
-    postMessage(data: any, transfer?: Transferable[]) {
+    postMessage(data: unknown, transfer?: Transferable[]) {
         this.worker.postMessage(data, transfer);
     }
 
@@ -100,14 +100,14 @@ class Pool {
             this.processQueue();
         };
 
-        worker.onmessage = (e) => {
-            let data = e.data;
+        worker.onmessage = (e: { data: unknown }) => {
+            let data = e.data as Record<string, unknown>;
 
             if (!data || !data.uuid) {
                 return;
             }
 
-            let task = this.tasks.get(data.uuid);
+            let task = this.tasks.get(data.uuid as UUID);
 
             if (!task) {
                 return;
@@ -115,7 +115,7 @@ class Pool {
 
             // Event dispatch from worker
             if (data.event) {
-                task.promise.dispatch(data.event, data.data);
+                task.promise.dispatch(data.event as string, data.data);
                 return;
             }
 
@@ -133,13 +133,15 @@ class Pool {
             // Task completion
             this.clearTaskTimeout(task);
             this.pending.delete(worker);
-            this.tasks.delete(data.uuid);
+            this.tasks.delete(data.uuid as UUID);
             this.completed++;
 
             if (data.error) {
-                task.reject(typeof data.error === 'object'
-                    ? Object.assign(new Error(data.error.message), { stack: data.error.stack })
-                    : new Error(data.error));
+                let err = data.error as Record<string, unknown>;
+
+                task.reject(typeof err === 'object'
+                    ? Object.assign(new Error(err.message as string), { stack: err.stack })
+                    : new Error(String(data.error)));
             }
             else {
                 task.resolve(data.result);
@@ -250,20 +252,21 @@ class Pool {
 
     schedule<T, E extends Record<string, unknown>>(
         path: string,
-        values: any[],
+        values: unknown[],
         options?: ScheduleOptions
     ): TaskPromise<T, E> {
         let resolve: (value: T) => void,
-            reject: (reason: any) => void,
+            reject: (reason: unknown) => void,
+            promise = new TaskPromise<T, E>((res, rej) => {
+                resolve = res;
+                reject = rej;
+            }),
             task: Task = {
                 aborted: false,
                 path,
-                promise: new TaskPromise<T, E>((res, rej) => {
-                    resolve = res;
-                    reject = rej;
-                }),
-                reject: reject!,
-                resolve: resolve!,
+                promise: promise as TaskPromise<unknown, Record<string, unknown>>,
+                reject: reject! as (reason: unknown) => void,
+                resolve: resolve! as (value: unknown) => void,
                 retained: false,
                 signal: options?.signal,
                 timeout: options?.timeout,
@@ -273,14 +276,14 @@ class Pool {
 
         if (this.cleanup) {
             task.reject(new Error('@esportsplus/workers: pool is shutting down'));
-            return task.promise;
+            return promise;
         }
 
         // Setup abort handler
         if (task.signal) {
             if (task.signal.aborted) {
                 task.reject(new Error('@esportsplus/workers: task aborted'));
-                return task.promise;
+                return promise;
             }
 
             task.signal.addEventListener('abort', () => {
@@ -318,7 +321,7 @@ class Pool {
             this.queue.add(task);
         }
 
-        return task.promise;
+        return promise;
     }
 
     shutdown(): Promise<void> {
@@ -387,12 +390,12 @@ class Pool {
 }
 
 
-export default <T extends Record<string, any>, E extends Record<string, any> = Record<string, any>>(url: string, options?: PoolOptions) => {
+export default <T extends Record<string, unknown>, E extends Record<string, Record<string, unknown>> = Record<string, Record<string, unknown>>>(url: string, options?: PoolOptions) => {
     let pool = new Pool(url, options),
         proxy = (options?: ScheduleOptions): InferWithEvents<T, E> => new Proxy(
             Object.assign(() => {}, { options, path: '' }) as ProxyTarget<T>,
             {
-                apply: (target: ProxyTarget<T>, __: any, values: any[]) => {
+                apply: (target: ProxyTarget<T>, _: unknown, values: unknown[]) => {
                     let opts = target.options,
                         path = target.path;
 
@@ -402,7 +405,7 @@ export default <T extends Record<string, any>, E extends Record<string, any> = R
                     return pool.schedule(path, values, opts);
                 },
                 deleteProperty: () => true,
-                get: (target: ProxyTarget<T>, key: string, receiver: any) => {
+                get: (target: ProxyTarget<T>, key: string, receiver: unknown) => {
                     if (key === 'options' || key === 'path') {
                         return Reflect.get(target, key);
                     }

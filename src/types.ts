@@ -3,7 +3,7 @@ import { TaskPromise } from './task';
 
 
 interface Actions {
-    [key: PropertyKey]: Actions | ((...args: any[]) => any)
+    [key: PropertyKey]: Actions | ((...args: unknown[]) => unknown)
 };
 
 type Infer<T> =
@@ -11,7 +11,7 @@ type Infer<T> =
         ? (...args: P) => Promise<R>
         : T extends (...args: infer P) => infer R
             ? (...args: P) => Promise<R>
-            : T extends Record<string, any>
+            : T extends Record<string, unknown>
                 ? { [K in keyof T]: Infer<T[K]> }
                 : never;
 
@@ -20,7 +20,7 @@ type InferWithEvents<T, E extends Record<string, Record<string, unknown>>> = {
         ? (...args: A) => TaskPromise<R, K extends keyof E ? E[K] : Record<string, unknown>>
         : T[K] extends (...args: infer A) => infer R
             ? (...args: A) => TaskPromise<Awaited<R>, K extends keyof E ? E[K] : Record<string, unknown>>
-            : T[K] extends Record<string, any>
+            : T[K] extends Record<string, unknown>
                 ? InferWithEvents<T[K], E>
                 : never;
 };
@@ -52,15 +52,15 @@ type ScheduleOptions = {
 type Task = {
     aborted: boolean;
     path: string;
-    promise: TaskPromise<any, any>;
-    reject: (reason: any) => void;
-    resolve: (value: any) => void;
+    promise: TaskPromise<unknown, Record<string, unknown>>;
+    reject: (reason: unknown) => void;
+    resolve: (value: unknown) => void;
     retained: boolean;
     signal?: AbortSignal;
     timeout?: number;
     timeoutId?: ReturnType<typeof setTimeout>;
     uuid: UUID;
-    values: any[];
+    values: unknown[];
     worker?: WorkerLike;
 };
 
@@ -71,15 +71,15 @@ type WorkerContext<E extends Record<string, unknown> = Record<string, unknown>> 
 };
 
 type WorkerLike = {
-    onerror: (e: any) => void;
-    onmessage: (e: any) => void;
-    postMessage(data: any, transfer?: Transferable[]): void;
+    onerror: (e: { message?: string }) => void;
+    onmessage: (e: { data: unknown }) => void;
+    postMessage(data: unknown, transfer?: Transferable[]): void;
     terminate(): void;
 };
 
 type WorkerPort = {
     onmessage: ((e: MessageEvent) => void) | null;
-    postMessage: (data: any, transfer?: Transferable[]) => void;
+    postMessage: (data: unknown, transfer?: Transferable[]) => void;
 };
 
 
