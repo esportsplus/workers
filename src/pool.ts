@@ -93,7 +93,9 @@ class Pool {
                 this.clearTaskTimeout(task);
                 this.pending.delete(worker);
                 this.tasks.delete(task.uuid);
-                task.reject(e.message);
+                task.reject(
+                    new Error(e.message ?? '@esportsplus/workers: worker error')
+                );
             }
 
             this.replaceWorker(worker);
