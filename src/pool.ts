@@ -126,7 +126,7 @@ class Pool {
                 this.clearTaskTimeout(task);
                 task.retained = true;
                 task.worker = worker;
-                task.promise.setReleaseHandler(() => {
+                task.promise.on('release', () => {
                     worker.postMessage({ release: true, uuid: data.uuid });
                 });
                 return;
