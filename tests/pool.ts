@@ -521,4 +521,185 @@ describe('Pool', () => {
             await p.shutdown();
         });
     });
+
+
+    describe('worker recycling (maxTasksPerWorker)', () => {
+        it('recycles worker after maxTasksPerWorker tasks', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, maxTasksPerWorker: 2 });
+
+            let initialWorker = mockWorkers[0];
+
+            // Task 1
+            let p1 = p().work();
+            let uuid1 = captureUuid(initialWorker);
+
+            simulateResult(initialWorker, uuid1, 1);
+
+            await expect(p1).resolves.toBe(1);
+
+            // Task 2 — should trigger recycling
+            let p2 = p().work();
+            let uuid2 = captureUuid(initialWorker);
+
+            simulateResult(initialWorker, uuid2, 2);
+
+            await expect(p2).resolves.toBe(2);
+
+            // Original worker terminated, new one created
+            expect(initialWorker.terminate).toHaveBeenCalled();
+            expect(mockWorkers.length).toBe(2);
+            expect(p.stats().workers).toBe(1);
+
+            await p.shutdown();
+        });
+
+        it('does not recycle when maxTasksPerWorker is 0 (disabled)', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, maxTasksPerWorker: 0 });
+
+            let worker = mockWorkers[0];
+
+            for (let i = 0; i < 5; i++) {
+                let promise = p().work();
+                let taskUuid = captureUuid(worker);
+
+                simulateResult(worker, taskUuid, i);
+
+                await expect(promise).resolves.toBe(i);
+            }
+
+            // Same worker still alive, no recycling
+            expect(worker.terminate).not.toHaveBeenCalled();
+            expect(mockWorkers.length).toBe(1);
+
+            await p.shutdown();
+        });
+
+        it('does not recycle when maxTasksPerWorker is not set', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+
+            let worker = mockWorkers[0];
+
+            for (let i = 0; i < 5; i++) {
+                let promise = p().work();
+                let taskUuid = captureUuid(worker);
+
+                simulateResult(worker, taskUuid, i);
+
+                await expect(promise).resolves.toBe(i);
+            }
+
+            expect(worker.terminate).not.toHaveBeenCalled();
+            expect(mockWorkers.length).toBe(1);
+
+            await p.shutdown();
+        });
+
+        it('new worker handles tasks after recycling', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, maxTasksPerWorker: 1 });
+
+            // Task 1 on first worker — triggers recycling
+            let worker1 = mockWorkers[0];
+            let p1 = p().work();
+            let uuid1 = captureUuid(worker1);
+
+            simulateResult(worker1, uuid1, 10);
+
+            await expect(p1).resolves.toBe(10);
+            expect(worker1.terminate).toHaveBeenCalled();
+
+            // Task 2 dispatched to new replacement worker
+            let worker2 = mockWorkers[1];
+            let p2 = p().work();
+            let uuid2 = captureUuid(worker2);
+
+            simulateResult(worker2, uuid2, 20);
+
+            await expect(p2).resolves.toBe(20);
+            expect(p.stats().completed).toBe(2);
+
+            await p.shutdown();
+        });
+
+        it('queued tasks dispatch to new worker after recycling', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, maxTasksPerWorker: 1 });
+
+            let worker1 = mockWorkers[0];
+
+            // Task 1 is dispatched, task 2 is queued
+            let p1 = p().work();
+            let p2 = p().work();
+
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().queued).toBe(1);
+
+            // Complete task 1 — triggers recycling, new worker picks up queued task
+            let uuid1 = captureUuid(worker1);
+
+            simulateResult(worker1, uuid1, 100);
+
+            await expect(p1).resolves.toBe(100);
+            expect(worker1.terminate).toHaveBeenCalled();
+
+            // New worker should have the queued task
+            let worker2 = mockWorkers[1];
+            let uuid2 = captureUuid(worker2);
+
+            simulateResult(worker2, uuid2, 200);
+
+            await expect(p2).resolves.toBe(200);
+
+            await p.shutdown();
+        });
+
+        it('stats reflect correct worker count after recycling', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 2, maxTasksPerWorker: 1 });
+
+            expect(p.stats().workers).toBe(2);
+
+            // available.pop() returns last worker (mockWorkers[1])
+            let worker = mockWorkers[1];
+            let promise = p().work();
+            let taskUuid = captureUuid(worker);
+
+            simulateResult(worker, taskUuid, 42);
+
+            await expect(promise).resolves.toBe(42);
+
+            // Worker count stays at 2 (old one replaced by new one)
+            expect(p.stats().workers).toBe(2);
+            expect(p.stats().idle).toBe(2);
+            expect(p.stats().busy).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('counts error completions toward recycling threshold', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, maxTasksPerWorker: 2 });
+
+            let worker = mockWorkers[0];
+
+            // Task 1 — completes with error result (not worker error, task error)
+            let p1 = p().work();
+            let uuid1 = captureUuid(worker);
+
+            simulateError(worker, uuid1, { message: 'task failed' });
+
+            await expect(p1).rejects.toThrow('task failed');
+
+            // Error still counts as task completion — count is 1
+            // Task 2
+            let p2 = p().work();
+            let uuid2 = captureUuid(worker);
+
+            simulateResult(worker, uuid2, 42);
+
+            await expect(p2).resolves.toBe(42);
+
+            // After 2 completions (1 error + 1 success), worker should be recycled
+            expect(worker.terminate).toHaveBeenCalled();
+            expect(mockWorkers.length).toBe(2);
+
+            await p.shutdown();
+        });
+    });
 });

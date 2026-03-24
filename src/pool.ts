@@ -49,9 +49,11 @@ class Pool {
     private idleTimeout: number;
     private idleTimers = new Map<WorkerLike, ReturnType<typeof setTimeout>>();
     private limit: number;
+    private maxTasksPerWorker: number;
     private pending = new Map<WorkerLike, Task>();
     private queue: ReturnType<typeof queue<Task>>;
     private tasks = new Map<UUID, Task>();
+    private tasksPerWorker = new Map<WorkerLike, number>();
     private url: string;
     private workers: WorkerLike[] = [];
 
@@ -59,6 +61,7 @@ class Pool {
     constructor(url: string, options?: PoolOptions) {
         this.idleTimeout = options?.idleTimeout ?? 0;
         this.limit = options?.limit && options.limit < MAX_CONCURRENCY ? options.limit : MAX_CONCURRENCY;
+        this.maxTasksPerWorker = options?.maxTasksPerWorker ?? 0;
         this.queue = queue<Task>(64);
         this.url = url;
 
@@ -149,7 +152,17 @@ class Pool {
                 task.resolve(data.result);
             }
 
-            this.markAvailable(worker);
+            // Recycle worker if max tasks reached
+            let count = (this.tasksPerWorker.get(worker) ?? 0) + 1;
+
+            if (this.maxTasksPerWorker > 0 && count >= this.maxTasksPerWorker) {
+                this.replaceWorker(worker);
+                this.available.push(this.createWorker());
+            }
+            else {
+                this.tasksPerWorker.set(worker, count);
+                this.markAvailable(worker);
+            }
 
             if (this.cleanup && this.pending.size === 0) {
                 this.cleanup();
@@ -158,6 +171,7 @@ class Pool {
             this.processQueue();
         };
 
+        this.tasksPerWorker.set(worker, 0);
         this.workers.push(worker);
 
         return worker;
@@ -235,6 +249,7 @@ class Pool {
 
     private replaceWorker(worker: WorkerLike) {
         this.clearIdleTimer(worker);
+        this.tasksPerWorker.delete(worker);
 
         let index = this.workers.indexOf(worker);
 
@@ -358,6 +373,7 @@ class Pool {
             }
 
             this.available.length = 0;
+            this.tasksPerWorker.clear();
             this.workers.length = 0;
             this.tasks.clear();
 
@@ -372,6 +388,7 @@ class Pool {
                 }
 
                 this.available.length = 0;
+                this.tasksPerWorker.clear();
                 this.workers.length = 0;
                 this.tasks.clear();
 

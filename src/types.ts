@@ -28,6 +28,7 @@ type InferWithEvents<T, E extends Record<string, Record<string, unknown>>> = {
 type PoolOptions = {
     idleTimeout?: number;
     limit?: number;
+    maxTasksPerWorker?: number;
 };
 
 type PoolStats = {
