@@ -18,38 +18,6 @@ Scope: Feature gaps, optimizations, and competitive analysis via web research
 **Our library (0.6.3)**: ~6 source files, proxy-based API, typed events, retain/release, auto-transferable detection, abort/timeout. Competitive API design closest to comlink's proxy pattern, but with pool management like piscina.
 
 
-## Priority 1: High-Impact Optimizations
-
-### 1.1 Missing Transferable Types
-
-Current `collectTransferables` only detects: ArrayBuffer, MessagePort, ImageBitmap, OffscreenCanvas.
-
-**Missing types now transferable in modern browsers:**
-- ReadableStream / WritableStream / TransformStream
-- VideoFrame (WebCodecs)
-- AudioData (WebCodecs)
-- MediaSourceHandle
-- RTCDataChannel
-- WebTransportReceiveStream / WebTransportSendStream
-
-**Recommendation**: Add detection for streams (ReadableStream, WritableStream, TransformStream) — these are the most commonly used missing types. WebCodecs types are niche but worth guarding with `typeof` checks.
-
-**Impact**: HIGH for streaming workloads. Without this, streams get structured-cloned instead of transferred, which defeats zero-copy.
-
-### 1.2 Worker Recycling After N Tasks
-
-No mechanism exists to recycle workers after processing N tasks. Long-lived workers accumulate memory from closures, caches, and V8 internal state.
-
-**Pattern from piscina/workerpool:**
-- Track tasks-completed per worker
-- After threshold (e.g., 1000 tasks), terminate and replace
-- Prevents slow memory leaks from becoming OOM crashes
-
-**Recommendation**: Add optional `maxTasksPerWorker` to PoolOptions.
-
-**Impact**: HIGH for long-running pools in production.
-
-
 ## Priority 2: Important Features
 
 ### 2.2 Dead Worker Detection (Heartbeat)
@@ -77,7 +45,7 @@ Current `stats()` returns: busy, completed, idle, queued, workers. Missing usefu
 - Tasks timed out count
 - Tasks retried count
 
-**Recommendation**: Add optional stats tracking (opt-in to avoid overhead). Track at minimum: `failed`, `timedOut`, `avgRunTime`, `avgWaitTime`.
+**Recommendation**: Always-on — no opt-in flag. Overhead is ~4 `performance.now()` calls per task (~40ns) which is negligible vs postMessage cost (1-50µs). Track: `failed`, `timedOut`, `avgRunTime`, `avgWaitTime`. Use running sums (`totalRunTime / completed`) to avoid per-task allocations. Add fields directly to `PoolStats`.
 
 **Impact**: MEDIUM. Essential for observability in production.
 
@@ -86,14 +54,27 @@ Current `stats()` returns: busy, completed, idle, queued, workers. Missing usefu
 No retry mechanism exists. If a task fails due to transient error, the caller must implement retry logic.
 
 **Pattern:**
-- Add optional `retries` and `retryDelay` to ScheduleOptions
 - Exponential backoff with jitter: `delay = baseDelay * 2^attempt + random()`
 - Cap at `maxRetryDelay`
-- Only retry on certain error types (not on abort/timeout)
+- Only retry on task errors (not on abort/timeout)
 
-**Recommendation**: Add optional retry support to ScheduleOptions: `{ retries?: number; retryDelay?: number }`.
+**Two-level configuration:**
 
-**Impact**: MEDIUM. Reduces boilerplate for callers.
+1. **Pool-level defaults** — set via `PoolOptions` at construction. Apply to all tasks unless overridden:
+   - `retries?: number` — max retry attempts (default: 0 = disabled)
+   - `retryDelay?: number` — base delay in ms for exponential backoff (default: 1000)
+   - `maxRetryDelay?: number` — cap on backoff delay (default: 30000)
+
+2. **Per-task overrides** — set via `ScheduleOptions` when scheduling a task. Override pool defaults for that specific task:
+   - `retries?: number` — override max retry attempts
+   - `retryDelay?: number` — override base delay
+   - `maxRetryDelay?: number` — override delay cap
+
+Resolution: per-task value ?? pool-level value ?? built-in default.
+
+**Recommendation**: Add retry fields to both `PoolOptions` and `ScheduleOptions`. Pool stores defaults, `schedule()` merges per-task overrides at dispatch time. Retry state (attempt count) lives on the `Task` object. On task error (not abort/timeout), if attempts remain, re-enqueue with backoff via `setTimeout` then `queue.add()`.
+
+**Impact**: MEDIUM. Reduces boilerplate for callers while allowing fine-grained per-task control.
 
 
 ## Priority 3: Nice-to-Have Features
