@@ -196,7 +196,9 @@ describe('collectTransferables', () => {
 
     describe('guarded type detection (mock globals)', () => {
         let originalAudioData = (globalThis as Record<string, unknown>).AudioData,
+            originalImageBitmap = (globalThis as Record<string, unknown>).ImageBitmap,
             originalMediaSourceHandle = (globalThis as Record<string, unknown>).MediaSourceHandle,
+            originalOffscreenCanvas = (globalThis as Record<string, unknown>).OffscreenCanvas,
             originalRTCDataChannel = (globalThis as Record<string, unknown>).RTCDataChannel,
             originalVideoFrame = (globalThis as Record<string, unknown>).VideoFrame;
 
@@ -208,11 +210,25 @@ describe('collectTransferables', () => {
                 (globalThis as Record<string, unknown>).AudioData = originalAudioData;
             }
 
+            if (originalImageBitmap === undefined) {
+                delete (globalThis as Record<string, unknown>).ImageBitmap;
+            }
+            else {
+                (globalThis as Record<string, unknown>).ImageBitmap = originalImageBitmap;
+            }
+
             if (originalMediaSourceHandle === undefined) {
                 delete (globalThis as Record<string, unknown>).MediaSourceHandle;
             }
             else {
                 (globalThis as Record<string, unknown>).MediaSourceHandle = originalMediaSourceHandle;
+            }
+
+            if (originalOffscreenCanvas === undefined) {
+                delete (globalThis as Record<string, unknown>).OffscreenCanvas;
+            }
+            else {
+                (globalThis as Record<string, unknown>).OffscreenCanvas = originalOffscreenCanvas;
             }
 
             if (originalRTCDataChannel === undefined) {
@@ -278,11 +294,37 @@ describe('collectTransferables', () => {
             expect(result[0]).toBe(channel);
         });
 
+        it('detects ImageBitmap when available', () => {
+            class MockImageBitmap {}
+
+            (globalThis as Record<string, unknown>).ImageBitmap = MockImageBitmap;
+
+            let bitmap = new MockImageBitmap();
+            let result = collectTransferables(bitmap);
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(bitmap);
+        });
+
+        it('detects OffscreenCanvas when available', () => {
+            class MockOffscreenCanvas {}
+
+            (globalThis as Record<string, unknown>).OffscreenCanvas = MockOffscreenCanvas;
+
+            let canvas = new MockOffscreenCanvas();
+            let result = collectTransferables(canvas);
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(canvas);
+        });
+
         it('ignores unavailable types gracefully', () => {
-            delete (globalThis as Record<string, unknown>).VideoFrame;
             delete (globalThis as Record<string, unknown>).AudioData;
+            delete (globalThis as Record<string, unknown>).ImageBitmap;
             delete (globalThis as Record<string, unknown>).MediaSourceHandle;
+            delete (globalThis as Record<string, unknown>).OffscreenCanvas;
             delete (globalThis as Record<string, unknown>).RTCDataChannel;
+            delete (globalThis as Record<string, unknown>).VideoFrame;
 
             let buffer = new ArrayBuffer(8);
             let result = collectTransferables({ data: buffer });

@@ -496,4 +496,118 @@ describe('onmessage', () => {
             );
         });
     });
+
+
+    describe('action throws after calling retain()', () => {
+        it('sends error and does not store cleanup in cleanups map', async () => {
+            let cleanupSpy = vi.fn(() => 'cleaned-up'),
+                handler = await setup({
+                    retainThenThrow: function (this: { retain: (fn?: () => void) => void }) {
+                        this.retain(cleanupSpy);
+                        throw new Error('action-failed');
+                    }
+                });
+
+            await send(handler, { args: [], path: 'retainThenThrow', uuid: 'rt-1' });
+
+            // Error should be sent back
+            let errorCall = postMessageSpy.mock.calls.find(
+                (c: unknown[]) => (c[0] as Record<string, unknown>).error
+            );
+
+            expect(errorCall).toBeDefined();
+            expect((errorCall![0] as Record<string, unknown>).error).toEqual(
+                expect.objectContaining({ message: 'action-failed' })
+            );
+
+            // No retained message should have been sent
+            let retainedCalls = postMessageSpy.mock.calls.filter(
+                (c: unknown[]) => (c[0] as Record<string, unknown>).retained === true
+            );
+
+            expect(retainedCalls).toHaveLength(0);
+        });
+
+        it('subsequent release sends undefined because cleanup was never stored', async () => {
+            let cleanupSpy = vi.fn(() => 'cleaned-up'),
+                handler = await setup({
+                    retainThenThrow: function (this: { retain: (fn?: () => void) => void }) {
+                        this.retain(cleanupSpy);
+                        throw new Error('action-failed');
+                    }
+                });
+
+            await send(handler, { args: [], path: 'retainThenThrow', uuid: 'rt-2' });
+            postMessageSpy.mockClear();
+
+            // Send release from pool — cleanup was never stored in the map
+            await send(handler, { release: true, uuid: 'rt-2' });
+
+            expect(cleanupSpy).not.toHaveBeenCalled();
+            expect(postMessageSpy).toHaveBeenCalledWith(
+                { result: undefined, uuid: 'rt-2' }
+            );
+        });
+    });
+
+
+    describe('release() called without prior retain()', () => {
+        it('sends two result messages — one from release and one from normal completion', async () => {
+            let handler = await setup({
+                releaseWithoutRetain: function (this: { release: (result?: unknown) => void }) {
+                    this.release('early-result');
+                    return 'normal-result';
+                }
+            });
+
+            await send(handler, { args: [], path: 'releaseWithoutRetain', uuid: 'rwr-1' });
+
+            // release() posts { result: 'early-result', uuid }
+            expect(postMessageSpy).toHaveBeenCalledWith(
+                { result: 'early-result', uuid: 'rwr-1' },
+                []
+            );
+
+            // Normal completion posts { result: 'normal-result', uuid } because retained is false
+            expect(postMessageSpy).toHaveBeenCalledWith(
+                { result: 'normal-result', uuid: 'rwr-1' },
+                []
+            );
+
+            // Two result-bearing calls total
+            let resultCalls = postMessageSpy.mock.calls.filter(
+                (c: unknown[]) => 'result' in (c[0] as Record<string, unknown>)
+            );
+
+            expect(resultCalls).toHaveLength(2);
+        });
+
+        it('does not crash when release is called without retain', async () => {
+            let handler = await setup({
+                releaseOnly: function (this: { release: (result?: unknown) => void }) {
+                    this.release();
+                }
+            });
+
+            await send(handler, { args: [], path: 'releaseOnly', uuid: 'rwr-2' });
+
+            // Should not throw — both release() and normal path send messages
+            let resultCalls = postMessageSpy.mock.calls.filter(
+                (c: unknown[]) => 'result' in (c[0] as Record<string, unknown>)
+            );
+
+            expect(resultCalls).toHaveLength(2);
+        });
+    });
+
+
+    describe('adapter()', () => {
+        it('throws when neither self nor parentPort is available', async () => {
+            vi.stubGlobal('self', undefined);
+
+            await expect(setup({ fn: () => 1 })).rejects.toThrow(
+                '@esportsplus/workers: must be called from within a worker context'
+            );
+        });
+    });
 });
