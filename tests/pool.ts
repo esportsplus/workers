@@ -702,4 +702,339 @@ describe('Pool', () => {
             await p.shutdown();
         });
     });
+
+
+    describe('heartbeat detection', () => {
+        it('terminates worker when heartbeat timeout expires', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            // Advance past heartbeat timeout
+            vi.advanceTimersByTime(500);
+
+            await expect(promise).rejects.toThrow('worker heartbeat timeout after 500ms');
+            expect(worker.terminate).toHaveBeenCalled();
+
+            await p.shutdown();
+        });
+
+        it('sends heartbeat config in dispatch payload', async () => {
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 200,
+                heartbeatTimeout: 1000,
+                limit: 1
+            });
+
+            p().work();
+
+            let worker = mockWorkers[0];
+            let payload = worker.postMessage.mock.calls[0][0] as Record<string, unknown>;
+
+            expect(payload.heartbeat).toBe(true);
+            expect(payload.heartbeatInterval).toBe(200);
+
+            simulateResult(worker, payload.uuid as string, 1);
+            await p.shutdown();
+        });
+
+        it('resets heartbeat timer on heartbeat message', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            // Advance 400ms (just under timeout)
+            vi.advanceTimersByTime(400);
+
+            // Send heartbeat — resets the timer
+            worker._emit('message', { heartbeat: true, uuid: taskUuid });
+
+            // Advance another 400ms (800ms total, but only 400ms since last heartbeat)
+            vi.advanceTimersByTime(400);
+
+            // Worker should still be alive — timer was reset
+            expect(worker.terminate).not.toHaveBeenCalled();
+
+            // Complete the task
+            simulateResult(worker, taskUuid, 42);
+
+            await expect(promise).resolves.toBe(42);
+            await p.shutdown();
+        });
+
+        it('does not monitor heartbeat when options not set', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+
+            p().work();
+
+            let worker = mockWorkers[0];
+            let payload = worker.postMessage.mock.calls[0][0] as Record<string, unknown>;
+
+            // No heartbeat fields in payload
+            expect(payload.heartbeat).toBeUndefined();
+            expect(payload.heartbeatInterval).toBeUndefined();
+
+            // Advance time significantly — worker should not be terminated
+            vi.advanceTimersByTime(10000);
+
+            expect(worker.terminate).not.toHaveBeenCalled();
+
+            simulateResult(worker, payload.uuid as string, 1);
+            await p.shutdown();
+        });
+
+        it('does not monitor heartbeat when only interval is set', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                limit: 1
+            });
+
+            p().work();
+
+            let worker = mockWorkers[0];
+            let payload = worker.postMessage.mock.calls[0][0] as Record<string, unknown>;
+
+            expect(payload.heartbeat).toBeUndefined();
+
+            vi.advanceTimersByTime(10000);
+
+            expect(worker.terminate).not.toHaveBeenCalled();
+
+            simulateResult(worker, payload.uuid as string, 1);
+            await p.shutdown();
+        });
+
+        it('does not monitor heartbeat when only timeout is set', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            p().work();
+
+            let worker = mockWorkers[0];
+            let payload = worker.postMessage.mock.calls[0][0] as Record<string, unknown>;
+
+            expect(payload.heartbeat).toBeUndefined();
+
+            vi.advanceTimersByTime(10000);
+
+            expect(worker.terminate).not.toHaveBeenCalled();
+
+            simulateResult(worker, payload.uuid as string, 1);
+            await p.shutdown();
+        });
+
+        it('replaces dead worker with new one', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let initialCount = mockWorkers.length;
+
+            p().work().catch(() => {});
+
+            vi.advanceTimersByTime(500);
+
+            // Original terminated, replacement created
+            expect(mockWorkers[initialCount - 1].terminate).toHaveBeenCalled();
+            expect(mockWorkers.length).toBeGreaterThan(initialCount);
+            expect(p.stats().workers).toBe(1);
+
+            await p.shutdown();
+        });
+
+        it('clears heartbeat timer on normal task completion', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            p().work();
+
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            // Complete task before timeout
+            simulateResult(worker, taskUuid, 42);
+
+            // Advance past what would have been the timeout
+            vi.advanceTimersByTime(1000);
+
+            // Worker should NOT be terminated — heartbeat timer was cleared on completion
+            expect(worker.terminate).not.toHaveBeenCalled();
+
+            await p.shutdown();
+        });
+
+        it('clears heartbeat timer on task error completion', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            simulateError(worker, taskUuid, { message: 'task failed' });
+
+            await expect(promise).rejects.toThrow('task failed');
+
+            // Advance past what would have been the timeout
+            vi.advanceTimersByTime(1000);
+
+            // Worker should NOT be terminated — heartbeat timer was cleared on error completion
+            expect(worker.terminate).not.toHaveBeenCalled();
+
+            await p.shutdown();
+        });
+
+        it('processes queued tasks after dead worker replacement', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let p1 = p().work();
+            let p2 = p().work();
+
+            expect(p.stats().queued).toBe(1);
+
+            // First worker dies from heartbeat timeout
+            vi.advanceTimersByTime(500);
+
+            await expect(p1).rejects.toThrow('worker heartbeat timeout');
+
+            // Replacement worker should pick up the queued task
+            expect(p.stats().queued).toBe(0);
+            expect(p.stats().busy).toBe(1);
+
+            // Complete the second task on the replacement worker
+            let newWorker = mockWorkers[mockWorkers.length - 1];
+            let uuid2 = captureUuid(newWorker);
+
+            simulateResult(newWorker, uuid2, 99);
+
+            await expect(p2).resolves.toBe(99);
+            await p.shutdown();
+        });
+
+        it('clears heartbeat timer on abort', async () => {
+            vi.useFakeTimers();
+
+            let controller = new AbortController();
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let promise = p({ signal: controller.signal }).work();
+
+            controller.abort();
+
+            await expect(promise).rejects.toThrow('task aborted');
+
+            // Advance past what would have been the timeout
+            vi.advanceTimersByTime(1000);
+
+            // The replacement worker should not be terminated by a stale heartbeat timer
+            let replacementWorker = mockWorkers[mockWorkers.length - 1];
+
+            expect(replacementWorker.terminate).not.toHaveBeenCalled();
+
+            await p.shutdown();
+        });
+
+        it('does not terminate retained worker after heartbeat timeout', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ hold: () => string }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let promise = p().hold();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            // Worker signals it wants to retain the task
+            worker._emit('message', { retained: true, uuid: taskUuid });
+
+            // Advance well past heartbeat timeout
+            vi.advanceTimersByTime(2000);
+
+            // Worker should NOT be terminated — heartbeat timer was cleared on retain
+            expect(worker.terminate).not.toHaveBeenCalled();
+            expect(p.stats().busy).toBe(1);
+
+            // Release and complete the retained task
+            promise.dispatch('release');
+            simulateResult(worker, taskUuid, 'done');
+
+            await expect(promise).resolves.toBe('done');
+            await p.shutdown();
+        });
+
+        it('heartbeat timer cleared on worker error', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            worker._emit('error', new Error('crash'));
+
+            await expect(promise).rejects.toThrow('crash');
+
+            // Advance past heartbeat timeout
+            vi.advanceTimersByTime(1000);
+
+            // No further terminations from stale heartbeat timer
+            expect(p.stats().workers).toBe(0);
+
+            await p.shutdown();
+        });
+    });
 });

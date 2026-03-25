@@ -2,7 +2,8 @@ import { collectTransferables } from './transfer';
 import { Actions, WorkerContext, WorkerPort } from './types';
 
 
-let cleanups = new Map<string, () => void | unknown>();
+let cleanups = new Map<string, () => void | unknown>(),
+    heartbeats = new Map<string, ReturnType<typeof setInterval>>();
 
 
 function adapter(): WorkerPort {
@@ -33,6 +34,15 @@ function adapter(): WorkerPort {
     }
 
     throw new Error('@esportsplus/workers: must be called from within a worker context');
+}
+
+function clearHeartbeat(uuid: string) {
+    let id = heartbeats.get(uuid);
+
+    if (id !== undefined) {
+        clearInterval(id);
+        heartbeats.delete(uuid);
+    }
 }
 
 function flatten(obj: Actions, prefix: string, map: Map<string, Function>): Map<string, Function> {
@@ -101,7 +111,15 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
         let { args, path, uuid } = data,
             action = map.get(path);
 
+        // Start heartbeat interval if pool requested it
+        if (data.heartbeat && data.heartbeatInterval) {
+            heartbeats.set(uuid, setInterval(() => {
+                worker.postMessage({ heartbeat: true, uuid });
+            }, data.heartbeatInterval as number));
+        }
+
         if (!action) {
+            clearHeartbeat(uuid);
             worker.postMessage({
                 error: `@esportsplus/workers: path does not exist '${path}'`,
                 uuid,
@@ -134,6 +152,8 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
         try {
             let result = await action.call(context, ...args);
 
+            clearHeartbeat(uuid);
+
             if (retained) {
                 if (cleanup) {
                     cleanups.set(uuid, cleanup);
@@ -146,6 +166,8 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
             }
         }
         catch (err) {
+            clearHeartbeat(uuid);
+
             let error = err instanceof Error
                 ? { message: err.message, stack: err.stack }
                 : String(err);

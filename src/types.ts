@@ -26,6 +26,8 @@ type InferWithEvents<T, E extends Record<string, Record<string, unknown>>> = {
 };
 
 type PoolOptions = {
+    heartbeatInterval?: number;
+    heartbeatTimeout?: number;
     idleTimeout?: number;
     limit?: number;
     maxTasksPerWorker?: number;

@@ -46,6 +46,9 @@ class Pool {
     private available: WorkerLike[] = [];
     private cleanup: (() => void) | null = null;
     private completed = 0;
+    private heartbeatInterval: number;
+    private heartbeatTimeout: number;
+    private heartbeatTimers = new Map<WorkerLike, ReturnType<typeof setTimeout>>();
     private idleTimeout: number;
     private idleTimers = new Map<WorkerLike, ReturnType<typeof setTimeout>>();
     private limit: number;
@@ -59,6 +62,8 @@ class Pool {
 
 
     constructor(url: string, options?: PoolOptions) {
+        this.heartbeatInterval = options?.heartbeatInterval ?? 0;
+        this.heartbeatTimeout = options?.heartbeatTimeout ?? 0;
         this.idleTimeout = options?.idleTimeout ?? 0;
         this.limit = options?.limit && options.limit < MAX_CONCURRENCY ? options.limit : MAX_CONCURRENCY;
         this.maxTasksPerWorker = options?.maxTasksPerWorker ?? 0;
@@ -73,6 +78,11 @@ class Pool {
         }
     }
 
+
+    private clearHeartbeatTimer(worker: WorkerLike) {
+        clearTimeout(this.heartbeatTimers.get(worker));
+        this.heartbeatTimers.delete(worker);
+    }
 
     private clearIdleTimer(worker: WorkerLike) {
         clearTimeout(this.idleTimers.get(worker));
@@ -93,6 +103,7 @@ class Pool {
             let task = this.pending.get(worker);
 
             if (task) {
+                this.clearHeartbeatTimer(worker);
                 this.clearTaskTimeout(task);
                 this.pending.delete(worker);
                 this.tasks.delete(task.uuid);
@@ -112,6 +123,12 @@ class Pool {
                 return;
             }
 
+            // Heartbeat response from worker — reset deadline timer
+            if (data.heartbeat) {
+                this.startHeartbeatTimer(worker);
+                return;
+            }
+
             let task = this.tasks.get(data.uuid as UUID);
 
             if (!task) {
@@ -126,6 +143,7 @@ class Pool {
 
             // Task retained — worker stays bound
             if (data.retained) {
+                this.clearHeartbeatTimer(worker);
                 this.clearTaskTimeout(task);
                 task.retained = true;
                 task.worker = worker;
@@ -136,6 +154,7 @@ class Pool {
             }
 
             // Task completion
+            this.clearHeartbeatTimer(worker);
             this.clearTaskTimeout(task);
             this.pending.delete(worker);
             this.tasks.delete(data.uuid as UUID);
@@ -207,7 +226,16 @@ class Pool {
             );
         }
 
-        worker.postMessage({ args: task.values, path: task.path, uuid: task.uuid }, collectTransferables(task.values));
+        let payload: Record<string, unknown> = { args: task.values, path: task.path, uuid: task.uuid };
+
+        // Start heartbeat monitoring if enabled
+        if (this.heartbeatInterval > 0 && this.heartbeatTimeout > 0) {
+            payload.heartbeat = true;
+            payload.heartbeatInterval = this.heartbeatInterval;
+            this.startHeartbeatTimer(worker);
+        }
+
+        worker.postMessage(payload, collectTransferables(task.values));
     }
 
     private processQueue() {
@@ -248,6 +276,7 @@ class Pool {
     }
 
     private replaceWorker(worker: WorkerLike) {
+        this.clearHeartbeatTimer(worker);
         this.clearIdleTimer(worker);
         this.tasksPerWorker.delete(worker);
 
@@ -264,6 +293,31 @@ class Pool {
         }
 
         worker.terminate();
+    }
+
+    private startHeartbeatTimer(worker: WorkerLike) {
+        clearTimeout(this.heartbeatTimers.get(worker));
+
+        this.heartbeatTimers.set(
+            worker,
+            setTimeout(() => {
+                let task = this.pending.get(worker);
+
+                this.heartbeatTimers.delete(worker);
+
+                if (!task) {
+                    return;
+                }
+
+                this.clearTaskTimeout(task);
+                this.pending.delete(worker);
+                this.tasks.delete(task.uuid);
+                task.reject(new Error(`@esportsplus/workers: worker heartbeat timeout after ${this.heartbeatTimeout}ms`));
+                this.replaceWorker(worker);
+                this.available.push(this.createWorker());
+                this.processQueue();
+            }, this.heartbeatTimeout)
+        );
     }
 
 
@@ -309,6 +363,7 @@ class Pool {
                 // If task is pending (running), terminate worker and replace
                 for (let [worker, pendingTask] of this.pending) {
                     if (pendingTask === task) {
+                        this.clearHeartbeatTimer(worker);
                         this.clearTaskTimeout(task);
                         this.pending.delete(worker);
                         this.tasks.delete(task.uuid);
@@ -342,6 +397,13 @@ class Pool {
     }
 
     shutdown(): Promise<void> {
+        // Clear all heartbeat timers
+        for (let timer of this.heartbeatTimers.values()) {
+            clearTimeout(timer);
+        }
+
+        this.heartbeatTimers.clear();
+
         // Clear all idle timers
         for (let timer of this.idleTimers.values()) {
             clearTimeout(timer);

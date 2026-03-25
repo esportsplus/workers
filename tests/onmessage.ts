@@ -26,6 +26,7 @@ describe('onmessage', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         vi.unstubAllGlobals();
     });
 
@@ -301,6 +302,128 @@ describe('onmessage', () => {
                 { data: { percent: 50 }, event: 'progress', uuid: '16' },
                 []
             );
+        });
+    });
+
+
+    describe('heartbeat', () => {
+        it('starts sending heartbeat messages when heartbeat config is present', async () => {
+            let handler = await setup({
+                slow: async function (this: unknown) {
+                    await new Promise((r) => setTimeout(r, 500));
+                    return 'done';
+                }
+            });
+
+            vi.useFakeTimers();
+
+            // Do not await — the action is async and takes 500ms
+            handler({ data: { args: [], heartbeat: true, heartbeatInterval: 100, path: 'slow', uuid: 'hb-1' } });
+
+            // Advance time to trigger heartbeat intervals
+            vi.advanceTimersByTime(100);
+
+            let heartbeatCalls = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls.length).toBeGreaterThanOrEqual(1);
+            expect(heartbeatCalls[0][0]).toEqual({ heartbeat: true, uuid: 'hb-1' });
+
+            // Advance more to get more heartbeats
+            vi.advanceTimersByTime(200);
+
+            let heartbeatCalls2 = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls2.length).toBeGreaterThanOrEqual(3);
+
+            // Complete the task by advancing past the setTimeout
+            await vi.advanceTimersByTimeAsync(200);
+        });
+
+        it('stops heartbeat after task completes synchronously', async () => {
+            let handler = await setup({
+                fast: function (this: unknown) { return 'quick'; }
+            });
+
+            // Call synchronously — synchronous action completes immediately
+            await handler({ data: { args: [], heartbeat: true, heartbeatInterval: 50, path: 'fast', uuid: 'hb-2' } });
+
+            // Allow microtasks
+            await new Promise((r) => setTimeout(r, 0));
+
+            postMessageSpy.mockClear();
+
+            vi.useFakeTimers();
+
+            // Advance time — no more heartbeats should fire since task is complete
+            vi.advanceTimersByTime(200);
+
+            let heartbeatCalls = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls.length).toBe(0);
+        });
+
+        it('stops heartbeat after task throws', async () => {
+            let handler = await setup({
+                boom: function (this: unknown) { throw new Error('fail'); }
+            });
+
+            await handler({ data: { args: [], heartbeat: true, heartbeatInterval: 50, path: 'boom', uuid: 'hb-3' } });
+            await new Promise((r) => setTimeout(r, 0));
+
+            postMessageSpy.mockClear();
+
+            vi.useFakeTimers();
+
+            vi.advanceTimersByTime(200);
+
+            let heartbeatCalls = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls.length).toBe(0);
+        });
+
+        it('does not start heartbeat without heartbeat config', async () => {
+            let handler = await setup({
+                normal: function (this: unknown) { return 1; }
+            });
+
+            await send(handler, { args: [], path: 'normal', uuid: 'hb-4' });
+
+            vi.useFakeTimers();
+
+            vi.advanceTimersByTime(500);
+
+            let heartbeatCalls = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls.length).toBe(0);
+        });
+
+        it('clears heartbeat when action path does not exist', async () => {
+            let handler = await setup({ fn: () => 1 });
+
+            await handler({ data: { args: [], heartbeat: true, heartbeatInterval: 50, path: 'nonexistent', uuid: 'hb-5' } });
+            await new Promise((r) => setTimeout(r, 0));
+
+            postMessageSpy.mockClear();
+
+            vi.useFakeTimers();
+
+            vi.advanceTimersByTime(200);
+
+            let heartbeatCalls = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls.length).toBe(0);
         });
     });
 
