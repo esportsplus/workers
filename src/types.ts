@@ -30,7 +30,10 @@ type PoolOptions = {
     heartbeatTimeout?: number;
     idleTimeout?: number;
     limit?: number;
+    maxRetryDelay?: number;
     maxTasksPerWorker?: number;
+    retries?: number;
+    retryDelay?: number;
 };
 
 type PoolStats = {
@@ -41,6 +44,7 @@ type PoolStats = {
     failed: number;
     idle: number;
     queued: number;
+    retried: number;
     timedOut: number;
     workers: number;
 };
@@ -52,18 +56,25 @@ type ProxyTarget<T> = {
 };
 
 type ScheduleOptions = {
+    maxRetryDelay?: number;
+    retries?: number;
+    retryDelay?: number;
     signal?: AbortSignal;
     timeout?: number;
 };
 
 type Task = {
     aborted: boolean;
+    attempts: number;
+    maxRetries: number;
+    maxRetryDelay: number;
     path: string;
     promise: TaskPromise<unknown, Record<string, unknown>>;
     queuedAt: number;
     reject: (reason: unknown) => void;
     resolve: (value: unknown) => void;
     retained: boolean;
+    retryDelay: number;
     signal?: AbortSignal;
     startedAt?: number;
     timeout?: number;

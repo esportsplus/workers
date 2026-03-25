@@ -46,6 +46,9 @@ class Pool {
     private available: WorkerLike[] = [];
     private cleanup: (() => void) | null = null;
     private completed = 0;
+    private defaultMaxRetryDelay: number;
+    private defaultRetries: number;
+    private defaultRetryDelay: number;
     private dispatched = 0;
     private failed = 0;
     private heartbeatInterval: number;
@@ -57,6 +60,7 @@ class Pool {
     private maxTasksPerWorker: number;
     private pending = new Map<WorkerLike, Task>();
     private queue: ReturnType<typeof queue<Task>>;
+    private retried = 0;
     private tasks = new Map<UUID, Task>();
     private tasksPerWorker = new Map<WorkerLike, number>();
     private timedOut = 0;
@@ -67,6 +71,9 @@ class Pool {
 
 
     constructor(url: string, options?: PoolOptions) {
+        this.defaultMaxRetryDelay = options?.maxRetryDelay ?? 30000;
+        this.defaultRetries = options?.retries ?? 0;
+        this.defaultRetryDelay = options?.retryDelay ?? 1000;
         this.heartbeatInterval = options?.heartbeatInterval ?? 0;
         this.heartbeatTimeout = options?.heartbeatTimeout ?? 0;
         this.idleTimeout = options?.idleTimeout ?? 0;
@@ -163,21 +170,27 @@ class Pool {
             this.clearTaskTimeout(task);
             this.pending.delete(worker);
             this.tasks.delete(data.uuid as UUID);
-            this.completed++;
 
             if (task.startedAt) {
                 this.totalRunTime += performance.now() - task.startedAt;
             }
 
             if (data.error) {
-                let err = data.error as Record<string, unknown>;
+                if (task.attempts < task.maxRetries) {
+                    this.retry(task);
+                }
+                else {
+                    let err = data.error as Record<string, unknown>;
 
-                this.failed++;
-                task.reject(typeof err === 'object'
-                    ? Object.assign(new Error(err.message as string), { stack: err.stack })
-                    : new Error(String(data.error)));
+                    this.completed++;
+                    this.failed++;
+                    task.reject(typeof err === 'object'
+                        ? Object.assign(new Error(err.message as string), { stack: err.stack })
+                        : new Error(String(data.error)));
+                }
             }
             else {
+                this.completed++;
                 task.resolve(data.result);
             }
 
@@ -311,6 +324,49 @@ class Pool {
         worker.terminate();
     }
 
+    private retry(task: Task) {
+        task.attempts++;
+        this.retried++;
+
+        let delay = Math.min(
+            task.retryDelay * Math.pow(2, task.attempts - 1) + Math.random() * task.retryDelay,
+            task.maxRetryDelay
+        );
+
+        task.aborted = false;
+        task.retained = false;
+        task.startedAt = undefined;
+        task.timeoutId = undefined;
+        task.uuid = uuid();
+        task.queuedAt = performance.now();
+
+        setTimeout(() => {
+            if (task.aborted) {
+                task.reject(new Error('@esportsplus/workers: task aborted'));
+                return;
+            }
+
+            if (this.cleanup) {
+                task.reject(new Error('@esportsplus/workers: pool is shutting down'));
+                return;
+            }
+
+            let worker = this.available.pop();
+
+            if (!worker && this.workers.length < this.limit) {
+                worker = this.createWorker();
+            }
+
+            if (worker) {
+                this.clearIdleTimer(worker);
+                this.dispatch(worker, task);
+            }
+            else {
+                this.queue.add(task);
+            }
+        }, delay);
+    }
+
     private startHeartbeatTimer(worker: WorkerLike) {
         clearTimeout(this.heartbeatTimers.get(worker));
 
@@ -351,12 +407,16 @@ class Pool {
             }),
             task: Task = {
                 aborted: false,
+                attempts: 0,
+                maxRetries: options?.retries ?? this.defaultRetries,
+                maxRetryDelay: options?.maxRetryDelay ?? this.defaultMaxRetryDelay,
                 path,
                 promise: promise as TaskPromise<unknown, Record<string, unknown>>,
                 queuedAt: performance.now(),
                 reject: reject! as (reason: unknown) => void,
                 resolve: resolve! as (value: unknown) => void,
                 retained: false,
+                retryDelay: options?.retryDelay ?? this.defaultRetryDelay,
                 signal: options?.signal,
                 timeout: options?.timeout,
                 uuid: uuid(),
@@ -486,6 +546,7 @@ class Pool {
             failed: this.failed,
             idle: this.available.length,
             queued: this.queue.length,
+            retried: this.retried,
             timedOut: this.timedOut,
             workers: this.workers.length
         };

@@ -109,6 +109,7 @@ describe('Pool', () => {
                 failed: 0,
                 idle: 3,
                 queued: 0,
+                retried: 0,
                 timedOut: 0,
                 workers: 3
             });
@@ -1229,6 +1230,404 @@ describe('Pool', () => {
 
             expect(stats.completed).toBe(1);
             expect(stats.avgRunTime).toBeGreaterThanOrEqual(0);
+        });
+    });
+
+
+    describe('task retry with backoff', () => {
+        it('retries task on error and eventually succeeds', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 2 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+            let uuid1 = captureUuid(worker);
+
+            // First attempt fails
+            simulateError(worker, uuid1, { message: 'transient' });
+
+            // Advance past retry delay
+            await vi.advanceTimersByTimeAsync(2000);
+
+            // Second attempt succeeds
+            let uuid2 = captureUuid(worker);
+
+            simulateResult(worker, uuid2, 42);
+
+            await expect(promise).resolves.toBe(42);
+            await p.shutdown();
+        });
+
+        it('rejects after exhausting all retries', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 2 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            // Attempt 0 (original)
+            simulateError(worker, captureUuid(worker), { message: 'fail1' });
+
+            await vi.advanceTimersByTimeAsync(2000);
+
+            // Attempt 1 (retry 1)
+            simulateError(worker, captureUuid(worker), { message: 'fail2' });
+
+            await vi.advanceTimersByTimeAsync(5000);
+
+            // Attempt 2 (retry 2) — last attempt
+            simulateError(worker, captureUuid(worker), { message: 'final fail' });
+
+            await expect(promise).rejects.toThrow('final fail');
+            await p.shutdown();
+        });
+
+        it('does not retry on abort', async () => {
+            vi.useFakeTimers();
+
+            let controller = new AbortController();
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 3 });
+            let promise = p({ signal: controller.signal }).work();
+
+            controller.abort();
+
+            await expect(promise).rejects.toThrow('task aborted');
+
+            expect(p.stats().retried).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('does not retry on timeout', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 3 });
+            let promise = p({ timeout: 500 }).work();
+
+            vi.advanceTimersByTime(500);
+
+            await expect(promise).rejects.toThrow('task timed out');
+
+            expect(p.stats().retried).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('does not retry when retries = 0 (default)', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            simulateError(worker, captureUuid(worker), { message: 'boom' });
+
+            await expect(promise).rejects.toThrow('boom');
+
+            expect(p.stats().retried).toBe(0);
+            expect(p.stats().failed).toBe(1);
+
+            await p.shutdown();
+        });
+
+        it('per-task override of pool-level retry config', async () => {
+            vi.useFakeTimers();
+
+            // Pool has retries=0, but per-task override sets retries=1
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let promise = p({ retries: 1 }).work();
+            let worker = mockWorkers[0];
+
+            // First attempt fails
+            simulateError(worker, captureUuid(worker), { message: 'transient' });
+
+            await vi.advanceTimersByTimeAsync(2000);
+
+            // Retry succeeds
+            simulateResult(worker, captureUuid(worker), 99);
+
+            await expect(promise).resolves.toBe(99);
+
+            expect(p.stats().retried).toBe(1);
+            expect(p.stats().failed).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('pool-level retry config applies to all tasks', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 1 });
+            let worker = mockWorkers[0];
+
+            // Task 1
+            let p1 = p().work();
+
+            simulateError(worker, captureUuid(worker), { message: 'err1' });
+
+            await vi.advanceTimersByTimeAsync(2000);
+
+            simulateResult(worker, captureUuid(worker), 1);
+
+            await expect(p1).resolves.toBe(1);
+
+            // Task 2
+            let p2 = p().work();
+
+            simulateError(worker, captureUuid(worker), { message: 'err2' });
+
+            await vi.advanceTimersByTimeAsync(2000);
+
+            simulateResult(worker, captureUuid(worker), 2);
+
+            await expect(p2).resolves.toBe(2);
+
+            expect(p.stats().retried).toBe(2);
+
+            await p.shutdown();
+        });
+
+        it('exponential backoff delays increase', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 3, retryDelay: 1000 });
+
+            // Spy on Math.random to control jitter
+            vi.spyOn(Math, 'random').mockReturnValue(0);
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            // Attempt 0 fails
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            // Retry 1: delay = 1000 * 2^0 + 0 = 1000ms
+            await vi.advanceTimersByTimeAsync(999);
+
+            // Should not have dispatched yet
+            expect(worker.postMessage.mock.calls.length).toBe(1);
+
+            await vi.advanceTimersByTimeAsync(1);
+
+            // Now dispatched (2 calls total)
+            expect(worker.postMessage.mock.calls.length).toBe(2);
+
+            // Attempt 1 fails
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            // Retry 2: delay = 1000 * 2^1 + 0 = 2000ms
+            await vi.advanceTimersByTimeAsync(1999);
+
+            expect(worker.postMessage.mock.calls.length).toBe(2);
+
+            await vi.advanceTimersByTimeAsync(1);
+
+            expect(worker.postMessage.mock.calls.length).toBe(3);
+
+            // Attempt 2 succeeds
+            simulateResult(worker, captureUuid(worker), 42);
+
+            await expect(promise).resolves.toBe(42);
+
+            vi.spyOn(Math, 'random').mockRestore();
+
+            await p.shutdown();
+        });
+
+        it('maxRetryDelay caps the delay', async () => {
+            vi.useFakeTimers();
+
+            // retryDelay=1000, maxRetryDelay=1500 — second retry would be 2000ms but capped at 1500
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, maxRetryDelay: 1500, retries: 3, retryDelay: 1000 });
+
+            vi.spyOn(Math, 'random').mockReturnValue(0);
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            // Attempt 0 fails
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            // Retry 1: delay = min(1000 * 1 + 0, 1500) = 1000ms
+            await vi.advanceTimersByTimeAsync(1000);
+
+            // Attempt 1 fails
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            // Retry 2: delay = min(1000 * 2 + 0, 1500) = 1500ms (capped)
+            await vi.advanceTimersByTimeAsync(1499);
+
+            // Should not have dispatched yet
+            expect(worker.postMessage.mock.calls.length).toBe(2);
+
+            await vi.advanceTimersByTimeAsync(1);
+
+            // Now dispatched
+            expect(worker.postMessage.mock.calls.length).toBe(3);
+
+            simulateResult(worker, captureUuid(worker), 42);
+
+            await expect(promise).resolves.toBe(42);
+
+            vi.spyOn(Math, 'random').mockRestore();
+
+            await p.shutdown();
+        });
+
+        it('stats().retried increments on each retry', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 3 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            expect(p.stats().retried).toBe(0);
+
+            // Attempt 0 fails
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            expect(p.stats().retried).toBe(1);
+
+            await vi.advanceTimersByTimeAsync(2000);
+
+            // Attempt 1 fails
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            expect(p.stats().retried).toBe(2);
+
+            await vi.advanceTimersByTimeAsync(5000);
+
+            // Attempt 2 succeeds
+            simulateResult(worker, captureUuid(worker), 42);
+
+            await expect(promise).resolves.toBe(42);
+
+            expect(p.stats().retried).toBe(2);
+
+            await p.shutdown();
+        });
+
+        it('stats().failed only increments when retries exhausted', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 1 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            // Attempt 0 fails — retry, not failed
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            expect(p.stats().failed).toBe(0);
+
+            await vi.advanceTimersByTimeAsync(2000);
+
+            // Attempt 1 fails — retries exhausted, now failed
+            simulateError(worker, captureUuid(worker), { message: 'final' });
+
+            expect(p.stats().failed).toBe(1);
+
+            await expect(promise).rejects.toThrow('final');
+
+            await p.shutdown();
+        });
+
+        it('retry during pool shutdown rejects', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 2 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            // First attempt fails — triggers retry
+            simulateError(worker, captureUuid(worker), { message: 'transient' });
+
+            // Attach rejection handler before shutdown to prevent unhandled rejection
+            let result = promise.catch((e: Error) => e);
+
+            // Shutdown before retry fires
+            let shutdownPromise = p.shutdown();
+
+            // Advance timer to fire the retry setTimeout
+            await vi.advanceTimersByTimeAsync(2000);
+
+            let err = await result;
+
+            expect(err).toBeInstanceOf(Error);
+            expect((err as Error).message).toContain('pool is shutting down');
+
+            await shutdownPromise;
+        });
+
+        it('does not retry on worker error (crash)', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 3 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            worker._emit('error', new Error('worker crashed'));
+
+            await expect(promise).rejects.toThrow('worker crashed');
+
+            expect(p.stats().retried).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('does not retry on heartbeat timeout', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1,
+                retries: 3
+            });
+
+            let promise = p().work();
+
+            vi.advanceTimersByTime(500);
+
+            await expect(promise).rejects.toThrow('heartbeat timeout');
+
+            expect(p.stats().retried).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('per-task retryDelay and maxRetryDelay override pool defaults', async () => {
+            vi.useFakeTimers();
+
+            vi.spyOn(Math, 'random').mockReturnValue(0);
+
+            // Pool defaults: retryDelay=1000, maxRetryDelay=30000
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 2 });
+
+            // Per-task: retryDelay=500, maxRetryDelay=600
+            let promise = p({ maxRetryDelay: 600, retryDelay: 500 }).work();
+            let worker = mockWorkers[0];
+
+            // Attempt 0 fails
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            // Retry 1: delay = min(500 * 1 + 0, 600) = 500ms
+            await vi.advanceTimersByTimeAsync(500);
+
+            // Attempt 1 fails
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            // Retry 2: delay = min(500 * 2 + 0, 600) = 600ms (capped)
+            await vi.advanceTimersByTimeAsync(599);
+
+            expect(worker.postMessage.mock.calls.length).toBe(2);
+
+            await vi.advanceTimersByTimeAsync(1);
+
+            expect(worker.postMessage.mock.calls.length).toBe(3);
+
+            simulateResult(worker, captureUuid(worker), 99);
+
+            await expect(promise).resolves.toBe(99);
+
+            vi.spyOn(Math, 'random').mockRestore();
+
+            await p.shutdown();
         });
     });
 });
