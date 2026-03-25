@@ -1753,6 +1753,138 @@ describe('Pool', () => {
             await p.shutdown();
         });
 
+        it('aborting queued task calls processQueue to drain aborted entries', async () => {
+            let p = createPool<{ work: (n: number) => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            // Task 1 runs immediately
+            let p1 = p().work(1);
+
+            // Queue tasks 2 (abortable), 3 (abortable), 4 (live)
+            let controller2 = new AbortController();
+            let controller3 = new AbortController();
+            let p2 = p({ signal: controller2.signal }).work(2);
+            let p3 = p({ signal: controller3.signal }).work(3);
+            let p4 = p().work(4);
+
+            expect(p.stats().queued).toBe(3);
+
+            // Abort tasks 2 and 3 while queued (worker still busy with task 1)
+            controller2.abort();
+            controller3.abort();
+
+            await expect(p2).rejects.toThrow('task aborted');
+            await expect(p3).rejects.toThrow('task aborted');
+
+            // Aborted tasks still in queue (ring buffer cannot remove arbitrary elements)
+            // but processQueue was called — no idle worker, so no dispatch yet
+            expect(p.stats().busy).toBe(1);
+
+            // Complete task 1 — processQueue drains aborted tasks and dispatches task 4
+            simulateResult(worker, captureUuid(worker, 0), 10);
+
+            await expect(p1).resolves.toBe(10);
+
+            // Task 4 dispatched, queue fully drained
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().queued).toBe(0);
+
+            simulateResult(worker, captureUuid(worker), 40);
+
+            await expect(p4).resolves.toBe(40);
+
+            await p.shutdown();
+        });
+
+        it('aborting running task triggers processQueue for next queued task', async () => {
+            let p = createPool<{ work: (n: number) => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            // Task 1 runs immediately
+            let controller1 = new AbortController();
+            let p1 = p({ signal: controller1.signal }).work(1);
+
+            // Task 2 queued
+            let p2 = p().work(2);
+
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().queued).toBe(1);
+
+            // Abort running task 1 — replacement worker created, processQueue dispatches task 2
+            controller1.abort();
+
+            await expect(p1).rejects.toThrow('task aborted');
+
+            // Task 2 should be dispatched to replacement worker
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().queued).toBe(0);
+
+            let lastWorker = mockWorkers[mockWorkers.length - 1];
+
+            simulateResult(lastWorker, captureUuid(lastWorker), 20);
+
+            await expect(p2).resolves.toBe(20);
+
+            await p.shutdown();
+        });
+
+        it('queue capacity is not permanently consumed by aborted tasks', async () => {
+            let p = createPool<{ work: (n: number) => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            // Fill queue: 1 running + many queued tasks, then abort some, complete others, schedule more
+            let p1 = p().work(0);
+
+            let controllers: AbortController[] = [];
+            let promises: Promise<unknown>[] = [];
+
+            // Queue 10 tasks with abort controllers
+            for (let i = 1; i <= 10; i++) {
+                let c = new AbortController();
+
+                controllers.push(c);
+                promises.push(p({ signal: c.signal }).work(i));
+            }
+
+            expect(p.stats().queued).toBe(10);
+
+            // Abort all 10 queued tasks
+            for (let i = 0, n = controllers.length; i < n; i++) {
+                controllers[i].abort();
+            }
+
+            // All should reject
+            for (let i = 0, n = promises.length; i < n; i++) {
+                await expect(promises[i]).rejects.toThrow('task aborted');
+            }
+
+            // Complete running task 1
+            simulateResult(worker, captureUuid(worker, 0), 0);
+
+            await expect(p1).resolves.toBe(0);
+
+            // Queue should be fully drained
+            expect(p.stats().queued).toBe(0);
+            expect(p.stats().idle).toBe(1);
+
+            // Now schedule more tasks — queue slots should be available
+            let p11 = p().work(11);
+            let p12 = p().work(12);
+
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().queued).toBe(1);
+
+            simulateResult(worker, captureUuid(worker), 11);
+
+            await expect(p11).resolves.toBe(11);
+
+            simulateResult(worker, captureUuid(worker), 12);
+
+            await expect(p12).resolves.toBe(12);
+
+            await p.shutdown();
+        });
+
         it('maxTasksPerWorker + heartbeat combined recycles worker with heartbeat config', async () => {
             vi.useFakeTimers();
 

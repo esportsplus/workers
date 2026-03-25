@@ -447,12 +447,14 @@ class Pool {
                         this.tasks.delete(task.uuid);
                         this.replaceWorker(worker);
                         this.available.push(this.createWorker());
-                        this.processQueue();
                         break;
                     }
                 }
 
                 task.reject(new Error('@esportsplus/workers: task aborted'));
+
+                // Eagerly drain aborted tasks from queue head when a worker is idle
+                this.processQueue();
             }, { once: true });
         }
 
