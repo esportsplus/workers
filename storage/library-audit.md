@@ -4,36 +4,22 @@ Audit date: 2026-03-24
 Scope: Feature gaps, optimizations, and competitive analysis via web research
 
 
-## Competitive Landscape
+## Baseline Benchmarks
 
-| Library | Weekly DLs | Size | Strengths |
-|---------|-----------|------|-----------|
-| workerpool | 10.3M | med | Mature, browser+Node, proxy API, task stringification |
-| piscina | 5.6M | 800KB | Atomics, concurrentTasksPerWorker, memory limits, stats |
-| tinypool | smaller | 38KB | Zero deps, used by Vitest |
-| comlink | lower | 1.1KB | Proxy-based RPC, expose/wrap pattern, smallest |
-| threads.js | smaller | <10KB | Universal (browser+Node+Electron), observables |
-| poolifier | growing | 16KB | Fixed+dynamic pools, published benchmarks |
+- Date: 2026-03-24
+- Commit: 554d15e (main)
 
-**Our library (0.6.3)**: ~6 source files, proxy-based API, typed events, retain/release, auto-transferable detection, abort/timeout, heartbeat, retry, enhanced stats. Competitive API closest to comlink's proxy pattern with pool management like piscina.
+| Benchmark | ops/sec | mean | p95 |
+|-----------|---------|------|-----|
+| raw postMessage round-trip | 52,553 | 0.019ms | 0.046ms |
+| pool dispatch + resolve (1 worker) | 33,566 | 0.030ms | 0.072ms |
+| 100 tasks concurrent (4 workers) | 1,255 | 0.797ms | 1.180ms |
+| 50 tasks sequential (4 workers) | 730 | 1.369ms | 2.164ms |
+| small payload (number) | 29,789 | 0.034ms | 0.068ms |
+| medium payload (1KB string) | 29,859 | 0.033ms | 0.069ms |
+| large payload (object 100 keys) | 13,479 | 0.074ms | 0.119ms |
 
-
-## Implemented
-
-### 1.1 Missing Transferable Types
-Added detection for AudioData, MediaSourceHandle, ReadableStream, RTCDataChannel, TransformStream, VideoFrame, WritableStream with `typeof` guards. WebTransport streams caught via inheritance.
-
-### 1.2 Worker Recycling After N Tasks
-`maxTasksPerWorker` option in `PoolOptions`. Tracks per-worker task counts, terminates and replaces at threshold.
-
-### 2.2 Dead Worker Detection (Heartbeat)
-`heartbeatInterval` and `heartbeatTimeout` in `PoolOptions`. Pool sends config in dispatch payload, monitors deadline timers, terminates+replaces unresponsive workers. Workers auto-heartbeat via setInterval.
-
-### 2.3 Pool Statistics Enhancements
-Always-on `failed`, `timedOut`, `avgRunTime`, `avgWaitTime`, `retried` in `PoolStats`. Uses `performance.now()` running sums.
-
-### 2.4 Task Retry with Backoff
-Two-level config: pool defaults (`retries`, `retryDelay`, `maxRetryDelay`) + per-task overrides via `ScheduleOptions`. Exponential backoff with jitter. Only retries on task errors.
+Pool overhead vs raw: ~36% (33,566 vs 52,553 ops/sec for single task).
 
 
 ## Remaining: Priority 3
