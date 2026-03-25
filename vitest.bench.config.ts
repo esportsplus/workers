@@ -11,7 +11,7 @@ export default defineConfig({
     },
     test: {
         benchmark: {
-            include: ['test/bench/**/*.bench.ts'],
+            include: ['tests/bench/**/*.bench.ts'],
         },
         pool: 'forks',
     },

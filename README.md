@@ -55,17 +55,39 @@ let data = await workers().fetchData('https://api.example.com');
 
 ```ts
 let workers = pool<Actions>('/worker.js', {
-    limit: 4,           // Max concurrent workers (default: CPU cores - 1)
-    idleTimeout: 30000  // Terminate idle workers after 30s (default: 0 = never)
+    heartbeatInterval: 5000,  // Workers send heartbeat every 5s
+    heartbeatTimeout: 10000,  // Terminate unresponsive workers after 10s
+    idleTimeout: 30000,       // Terminate idle workers after 30s
+    limit: 4,                 // Max concurrent workers
+    maxRetryDelay: 30000,     // Cap on exponential backoff
+    maxTasksPerWorker: 1000,  // Recycle worker after N tasks
+    retries: 3,               // Retry failed tasks up to 3 times
+    retryDelay: 1000          // Base delay for exponential backoff
 });
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `limit` | `number` | `cpus - 1` | Maximum worker threads |
+| `heartbeatInterval` | `number` | `0` | MS between worker heartbeats (0 = disabled) |
+| `heartbeatTimeout` | `number` | `0` | MS before unresponsive worker is terminated (0 = disabled) |
 | `idleTimeout` | `number` | `0` | MS before idle workers terminate (0 = keep alive) |
+| `limit` | `number` | `cpus - 1` | Maximum worker threads |
+| `maxRetryDelay` | `number` | `30000` | Maximum backoff delay in ms |
+| `maxTasksPerWorker` | `number` | `0` | Recycle worker after N completions (0 = never) |
+| `retries` | `number` | `0` | Max retry attempts for failed tasks (0 = disabled) |
+| `retryDelay` | `number` | `1000` | Base delay in ms for exponential backoff |
 
 ## Task Options
+
+Pass options to `workers(options)` to configure individual tasks. These override pool-level defaults.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `maxRetryDelay` | `number` | pool default | Override max backoff delay |
+| `retries` | `number` | pool default | Override max retry attempts |
+| `retryDelay` | `number` | pool default | Override base backoff delay |
+| `signal` | `AbortSignal` | — | Cancel task via AbortController |
+| `timeout` | `number` | — | Auto-cancel after N ms |
 
 ### Timeout
 
@@ -93,12 +115,35 @@ controller.abort();
 await promise; // throws '@esportsplus/workers: task aborted'
 ```
 
+### Retry
+
+Failed tasks retry with exponential backoff. Set pool-level defaults and override per-task:
+
+```ts
+// Pool-level defaults
+let workers = pool<Actions>('/worker.js', {
+    retries: 3,
+    retryDelay: 1000,
+    maxRetryDelay: 30000
+});
+
+// Per-task override
+let result = await workers({
+    retries: 5,           // This task gets 5 attempts
+    retryDelay: 500,      // Faster initial backoff
+    maxRetryDelay: 10000  // Lower cap
+}).unreliableTask(data);
+```
+
+Only task errors trigger retries. Aborts, timeouts, and worker crashes do not retry.
+
 ### Combined
 
 ```ts
 let controller = new AbortController();
 
 let result = await workers({
+    retries: 2,
     signal: controller.signal,
     timeout: 10000
 }).processData(largeDataset);
@@ -106,7 +151,9 @@ let result = await workers({
 
 ## Transferables
 
-Transferable objects (`ArrayBuffer`, `MessagePort`, `ImageBitmap`, `OffscreenCanvas`) are **automatically detected** and transferred for zero-copy performance. No manual configuration required.
+Transferable objects are **automatically detected** and transferred for zero-copy performance. No manual configuration required.
+
+Supported types: `ArrayBuffer`, `MessagePort`, `ImageBitmap`, `OffscreenCanvas`, `ReadableStream`, `WritableStream`, `TransformStream`, `AudioData`, `VideoFrame`, `MediaSourceHandle`, `RTCDataChannel`.
 
 ```ts
 // ArrayBuffer - automatically transferred (sender loses access)
@@ -192,6 +239,47 @@ let result = await workers()
 console.log(result); // { processed: 3 }
 ```
 
+## Retain / Release
+
+By default, a worker is returned to the pool after its action completes. Use `retain` to keep the worker bound to a task for long-lived operations (e.g., streaming, stateful sessions):
+
+```ts
+// worker.ts
+let actions = {
+    openSession(this: WorkerContext, userId: string) {
+        let connection = createConnection(userId);
+
+        // Keep this worker bound — it won't be reused until released
+        this.retain(() => {
+            // Cleanup runs when the pool releases this worker
+            connection.close();
+            return 'session closed';
+        });
+    }
+};
+```
+
+From the main thread, release via the TaskPromise:
+
+```ts
+let session = workers().openSession('user-123');
+
+// ... later ...
+session.dispatch('release'); // Triggers cleanup, worker returns to pool
+```
+
+Workers can also release themselves early:
+
+```ts
+let actions = {
+    shortLived(this: WorkerContext) {
+        this.retain();
+        // ... do some work ...
+        this.release('done'); // Worker returns to pool immediately
+    }
+};
+```
+
 ## Pool Management
 
 ### Statistics
@@ -200,11 +288,16 @@ console.log(result); // { processed: 3 }
 let stats = workers.stats();
 
 // {
-//   workers: 4,    // Total workers
-//   busy: 2,       // Currently executing
-//   idle: 2,       // Available for work
-//   queued: 10,    // Tasks waiting
-//   completed: 150 // Total completed
+//   avgRunTime: 12.5,  // Average task execution time (ms)
+//   avgWaitTime: 0.8,  // Average queue wait time (ms)
+//   busy: 2,           // Currently executing
+//   completed: 150,    // Total completed
+//   failed: 3,         // Tasks that errored (after all retries exhausted)
+//   idle: 2,           // Available for work
+//   queued: 10,        // Tasks waiting
+//   retried: 7,        // Total retry attempts
+//   timedOut: 1,       // Tasks that timed out
+//   workers: 4         // Total workers
 // }
 ```
 
@@ -310,14 +403,8 @@ Type for the `this` context available in worker actions:
 ```ts
 type WorkerContext<E> = {
     dispatch: <K extends keyof E>(event: K, data: E[K]) => void;
-};
-
-// Usage in action (declare this type for TypeScript)
-let actions = {
-    myAction(this: WorkerContext<Events>, arg: string) {
-        this.dispatch('eventName', eventData);
-        return result;
-    }
+    release: (result?: unknown) => void;
+    retain: (cleanup?: () => void | unknown) => void;
 };
 ```
 
@@ -325,12 +412,17 @@ let actions = {
 
 - **Type-safe** - Full TypeScript inference for methods, args, returns, and events
 - **Proxy API** - Chain paths like `workers().namespace.method()`
-- **Auto transferables** - ArrayBuffer, MessagePort, ImageBitmap, OffscreenCanvas detected automatically
+- **Auto transferables** - ArrayBuffer, MessagePort, streams, AudioData, VideoFrame, and more detected automatically
 - **Auto pooling** - Workers created on-demand, recycled automatically
 - **Task queue** - Backpressure handling when workers busy
 - **Cancellation** - AbortSignal support for task cancellation
 - **Timeouts** - Per-task timeout configuration
+- **Task retry** - Exponential backoff with pool-level defaults and per-task overrides
 - **Per-task events** - Typed worker-to-main communication scoped to each task
+- **Retain/release** - Keep workers bound for long-lived stateful operations
+- **Heartbeat** - Detect and replace unresponsive workers
+- **Worker recycling** - Replace workers after N tasks to limit memory growth
 - **Idle timeout** - Auto-terminate unused workers
 - **Crash recovery** - Failed workers replaced automatically
+- **Observability** - avgRunTime, avgWaitTime, failed, retried, timedOut counters
 - **Cross-platform** - Browser Web Workers + Node.js worker_threads

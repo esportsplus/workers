@@ -9,6 +9,7 @@ export default defineConfig({
         }
     },
     test: {
+        exclude: ['tests/bench/**'],
         include: ['tests/**/*.ts'],
         restoreMocks: true
     }

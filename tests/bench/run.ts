@@ -1,6 +1,6 @@
 /**
  * Standalone benchmark for @esportsplus/workers pool
- * Run: npx tsx test/bench/run.ts
+ * Run: npx tsx tests/bench/run.ts
  */
 
 import { createRequire } from 'node:module';
