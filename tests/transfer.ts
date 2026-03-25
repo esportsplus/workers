@@ -392,4 +392,83 @@ describe('collectTransferables', () => {
             expect(result).toEqual([]);
         });
     });
+
+
+    describe('fast-path optimization', () => {
+        it('returns empty for bigint primitive', () => {
+            expect(collectTransferables(BigInt(42))).toEqual([]);
+        });
+
+        it('returns empty for symbol primitive', () => {
+            expect(collectTransferables(Symbol('test'))).toEqual([]);
+        });
+
+        it('returns empty for shallow primitive-only object', () => {
+            let result = collectTransferables({
+                a: 1,
+                b: 'two',
+                c: true,
+                d: null,
+                e: undefined
+            });
+
+            expect(result).toEqual([]);
+        });
+
+        it('returns empty for shallow primitive-only array', () => {
+            let result = collectTransferables([1, 'hello', false, null, undefined, 0]);
+
+            expect(result).toEqual([]);
+        });
+
+        it('falls through to full traversal when object has nested object', () => {
+            let buffer = new ArrayBuffer(8);
+            let result = collectTransferables({
+                a: 1,
+                b: 'two',
+                nested: { deep: buffer }
+            });
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(buffer);
+        });
+
+        it('falls through to full traversal when array has non-primitive', () => {
+            let buffer = new ArrayBuffer(8);
+            let result = collectTransferables([1, 'two', { data: buffer }]);
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(buffer);
+        });
+
+        it('still finds transferables inside deeply nested structures', () => {
+            let buffer = new ArrayBuffer(8);
+            let result = collectTransferables({
+                level1: {
+                    level2: {
+                        level3: [buffer]
+                    }
+                }
+            });
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(buffer);
+        });
+
+        it('falls through for ArrayBuffer (not a plain object)', () => {
+            let buffer = new ArrayBuffer(8);
+            let result = collectTransferables(buffer);
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(buffer);
+        });
+
+        it('falls through for ReadableStream (not a plain object)', () => {
+            let stream = new ReadableStream();
+            let result = collectTransferables(stream);
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(stream);
+        });
+    });
 });
