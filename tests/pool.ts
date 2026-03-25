@@ -102,10 +102,14 @@ describe('Pool', () => {
             let p = createPool('test.js', { limit: 3 });
 
             expect(p.stats()).toEqual({
+                avgRunTime: 0,
+                avgWaitTime: 0,
                 busy: 0,
                 completed: 0,
+                failed: 0,
                 idle: 3,
                 queued: 0,
+                timedOut: 0,
                 workers: 3
             });
 
@@ -1035,6 +1039,196 @@ describe('Pool', () => {
             expect(p.stats().workers).toBe(0);
 
             await p.shutdown();
+        });
+    });
+
+
+    describe('enhanced statistics', () => {
+        it('shows zero averages initially', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 2 });
+            let stats = p.stats();
+
+            expect(stats.avgRunTime).toBe(0);
+            expect(stats.avgWaitTime).toBe(0);
+            expect(stats.failed).toBe(0);
+            expect(stats.timedOut).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('failed increments on task error', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            simulateError(worker, taskUuid, { message: 'boom' });
+
+            await expect(promise).rejects.toThrow('boom');
+
+            expect(p.stats().failed).toBe(1);
+            expect(p.stats().completed).toBe(1);
+
+            await p.shutdown();
+        });
+
+        it('timedOut increments on task timeout', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+
+            let promise = p({ timeout: 500 }).work();
+
+            vi.advanceTimersByTime(500);
+
+            await expect(promise).rejects.toThrow('task timed out');
+
+            expect(p.stats().timedOut).toBe(1);
+            expect(p.stats().completed).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('timedOut increments on heartbeat timeout', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let promise = p().work();
+
+            vi.advanceTimersByTime(500);
+
+            await expect(promise).rejects.toThrow('heartbeat timeout');
+
+            expect(p.stats().timedOut).toBe(1);
+            expect(p.stats().completed).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('avgRunTime is non-zero after task completion', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            simulateResult(worker, taskUuid, 42);
+
+            await expect(promise).resolves.toBe(42);
+
+            expect(p.stats().avgRunTime).toBeGreaterThanOrEqual(0);
+            expect(p.stats().completed).toBe(1);
+
+            await p.shutdown();
+        });
+
+        it('avgWaitTime is non-zero after queued task completes', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+
+            // First task occupies the worker
+            p().work();
+
+            // Second task gets queued
+            let p2 = p().work();
+
+            expect(p.stats().queued).toBe(1);
+
+            // Complete first task — second gets dispatched
+            let worker = mockWorkers[0];
+            let uuid1 = captureUuid(worker, 0);
+
+            simulateResult(worker, uuid1, 1);
+
+            // Complete second task
+            let uuid2 = captureUuid(worker);
+
+            simulateResult(worker, uuid2, 2);
+
+            await expect(p2).resolves.toBe(2);
+
+            // avgWaitTime should be > 0 because the second task waited in queue
+            expect(p.stats().avgWaitTime).toBeGreaterThanOrEqual(0);
+
+            await p.shutdown();
+        });
+
+        it('multiple completions average correctly', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            for (let i = 0; i < 5; i++) {
+                let promise = p().work();
+                let taskUuid = captureUuid(worker);
+
+                simulateResult(worker, taskUuid, i);
+
+                await expect(promise).resolves.toBe(i);
+            }
+
+            let stats = p.stats();
+
+            expect(stats.completed).toBe(5);
+            expect(stats.failed).toBe(0);
+            expect(stats.timedOut).toBe(0);
+            expect(stats.avgRunTime).toBeGreaterThanOrEqual(0);
+            expect(stats.avgWaitTime).toBeGreaterThanOrEqual(0);
+
+            await p.shutdown();
+        });
+
+        it('failed and completed both increment on error completion', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            // Success
+            let p1 = p().work();
+
+            simulateResult(worker, captureUuid(worker), 1);
+
+            await expect(p1).resolves.toBe(1);
+
+            // Error
+            let p2 = p().work();
+
+            simulateError(worker, captureUuid(worker), { message: 'err' });
+
+            await expect(p2).rejects.toThrow('err');
+
+            // Success
+            let p3 = p().work();
+
+            simulateResult(worker, captureUuid(worker), 3);
+
+            await expect(p3).resolves.toBe(3);
+
+            let stats = p.stats();
+
+            expect(stats.completed).toBe(3);
+            expect(stats.failed).toBe(1);
+
+            await p.shutdown();
+        });
+
+        it('stats persist after shutdown for reading', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+            let promise = p().work();
+            let taskUuid = captureUuid(worker);
+
+            simulateResult(worker, taskUuid, 42);
+
+            await expect(promise).resolves.toBe(42);
+            await p.shutdown();
+
+            let stats = p.stats();
+
+            expect(stats.completed).toBe(1);
+            expect(stats.avgRunTime).toBeGreaterThanOrEqual(0);
         });
     });
 });

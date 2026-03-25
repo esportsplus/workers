@@ -34,10 +34,14 @@ type PoolOptions = {
 };
 
 type PoolStats = {
+    avgRunTime: number;
+    avgWaitTime: number;
     busy: number;
     completed: number;
+    failed: number;
     idle: number;
     queued: number;
+    timedOut: number;
     workers: number;
 };
 
@@ -56,10 +60,12 @@ type Task = {
     aborted: boolean;
     path: string;
     promise: TaskPromise<unknown, Record<string, unknown>>;
+    queuedAt: number;
     reject: (reason: unknown) => void;
     resolve: (value: unknown) => void;
     retained: boolean;
     signal?: AbortSignal;
+    startedAt?: number;
     timeout?: number;
     timeoutId?: ReturnType<typeof setTimeout>;
     uuid: UUID;

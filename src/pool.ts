@@ -46,6 +46,8 @@ class Pool {
     private available: WorkerLike[] = [];
     private cleanup: (() => void) | null = null;
     private completed = 0;
+    private dispatched = 0;
+    private failed = 0;
     private heartbeatInterval: number;
     private heartbeatTimeout: number;
     private heartbeatTimers = new Map<WorkerLike, ReturnType<typeof setTimeout>>();
@@ -57,6 +59,9 @@ class Pool {
     private queue: ReturnType<typeof queue<Task>>;
     private tasks = new Map<UUID, Task>();
     private tasksPerWorker = new Map<WorkerLike, number>();
+    private timedOut = 0;
+    private totalRunTime = 0;
+    private totalWaitTime = 0;
     private url: string;
     private workers: WorkerLike[] = [];
 
@@ -160,9 +165,14 @@ class Pool {
             this.tasks.delete(data.uuid as UUID);
             this.completed++;
 
+            if (task.startedAt) {
+                this.totalRunTime += performance.now() - task.startedAt;
+            }
+
             if (data.error) {
                 let err = data.error as Record<string, unknown>;
 
+                this.failed++;
                 task.reject(typeof err === 'object'
                     ? Object.assign(new Error(err.message as string), { stack: err.stack })
                     : new Error(String(data.error)));
@@ -203,9 +213,14 @@ class Pool {
             return;
         }
 
+        let now = performance.now();
+
         this.clearIdleTimer(worker);
+        this.dispatched++;
         this.pending.set(worker, task);
         this.tasks.set(task.uuid, task);
+        this.totalWaitTime += now - task.queuedAt;
+        task.startedAt = now;
 
         // Setup timeout
         if (task.timeout && task.timeout > 0) {
@@ -217,6 +232,7 @@ class Pool {
 
                     this.pending.delete(worker);
                     this.tasks.delete(task.uuid);
+                    this.timedOut++;
                     task.reject(new Error(`@esportsplus/workers: task timed out after ${task.timeout}ms`));
                     this.replaceWorker(worker);
                     this.available.push(this.createWorker());
@@ -312,6 +328,7 @@ class Pool {
                 this.clearTaskTimeout(task);
                 this.pending.delete(worker);
                 this.tasks.delete(task.uuid);
+                this.timedOut++;
                 task.reject(new Error(`@esportsplus/workers: worker heartbeat timeout after ${this.heartbeatTimeout}ms`));
                 this.replaceWorker(worker);
                 this.available.push(this.createWorker());
@@ -336,6 +353,7 @@ class Pool {
                 aborted: false,
                 path,
                 promise: promise as TaskPromise<unknown, Record<string, unknown>>,
+                queuedAt: performance.now(),
                 reject: reject! as (reason: unknown) => void,
                 resolve: resolve! as (value: unknown) => void,
                 retained: false,
@@ -461,10 +479,14 @@ class Pool {
 
     stats(): PoolStats {
         return {
+            avgRunTime: this.completed > 0 ? this.totalRunTime / this.completed : 0,
+            avgWaitTime: this.dispatched > 0 ? this.totalWaitTime / this.dispatched : 0,
             busy: this.pending.size,
             completed: this.completed,
+            failed: this.failed,
             idle: this.available.length,
             queued: this.queue.length,
+            timedOut: this.timedOut,
             workers: this.workers.length
         };
     }
