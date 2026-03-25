@@ -40,16 +40,10 @@ Current communication is 100% postMessage (structured clone + transferables). Fo
 **Impact**: LOW unless postMessage overhead is measured as a bottleneck.
 
 
-## Remaining: Priority 4
+## Implemented: Priority 4
 
 ### 4.1 Transferable Detection: Avoid Redundant Traversal
-
-`collectTransferables` traverses the entire value tree on every `postMessage`. For payloads known to have no transferables (e.g., simple objects/strings), this is wasted work.
-
-**Optimization**: Add a fast-path check — if the value is a primitive, string, or shallow object with only primitive values, skip traversal.
+Fast-path checks in `collectTransferables`: primitives, shallow primitive-only arrays, and shallow primitive-only plain objects return `[]` immediately without allocating stack/result arrays. +12-62% throughput across all benchmarks.
 
 ### 4.3 Queue Draining on Abort
-
-When a queued (not yet dispatched) task is aborted, it stays in the queue until a worker picks it up and the `dispatch()` method notices `task.aborted`. For large queues with many aborted tasks, this wastes dequeue cycles.
-
-**Optimization**: Could mark aborted tasks and skip them during `processQueue`. Already partially implemented — the while loop in `processQueue` skips aborted tasks, but they still occupy queue capacity.
+`processQueue()` now fires unconditionally on task abort (not just for running tasks). When a queued task is aborted and a worker is idle, the queue drains past aborted entries immediately instead of waiting for the next completion event.
