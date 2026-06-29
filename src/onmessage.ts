@@ -1,4 +1,4 @@
-import { workerPort } from './platform.node';
+import { workerPort } from './platform/node';
 import { collectTransferables } from './transfer';
 import { Actions, WorkerContext, WorkerPort } from './types';
 

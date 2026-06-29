@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { WorkerLike, WorkerPort } from './types';
+import { WorkerLike, WorkerPort } from '../types';
 
 
 const nodeRequire = createRequire(import.meta.url);

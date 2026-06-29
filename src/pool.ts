@@ -1,5 +1,5 @@
 import { uuid, type UUID } from '@esportsplus/utilities';
-import { cores, spawn } from './platform.node';
+import { cores, spawn } from './platform/node';
 import { PriorityQueue } from './schedule';
 import { TaskPromise } from './task';
 import { collectTransferables } from './transfer';

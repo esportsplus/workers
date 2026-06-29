@@ -1,4 +1,4 @@
-import { WorkerLike, WorkerPort } from './types';
+import { WorkerLike, WorkerPort } from '../types';
 
 
 const cores = (): number => navigator.hardwareConcurrency;
