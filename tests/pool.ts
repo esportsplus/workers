@@ -116,6 +116,35 @@ describe('Pool', () => {
 
             await p.shutdown();
         });
+
+        it('honors an explicit limit above core count (no clamp)', async () => {
+            let p = createPool('test.js', { limit: 32 });
+
+            expect(p.stats().workers).toBe(32);
+            expect(mockWorkers.length).toBe(32);
+
+            await p.shutdown();
+        });
+
+        it('defaults to MAX_CONCURRENCY and creates at least one worker when limit omitted', async () => {
+            let p = createPool('test.js');
+
+            expect(p.stats().workers).toBeGreaterThanOrEqual(1);
+
+            await p.shutdown();
+        });
+
+        it('throws when limit is 0', () => {
+            expect(() => createPool('test.js', { limit: 0 })).toThrow('limit must be a positive integer');
+        });
+
+        it('throws when limit is negative', () => {
+            expect(() => createPool('test.js', { limit: -1 })).toThrow('limit must be a positive integer');
+        });
+
+        it('throws when limit is a non-integer', () => {
+            expect(() => createPool('test.js', { limit: 2.5 })).toThrow('limit must be a positive integer');
+        });
     });
 
 

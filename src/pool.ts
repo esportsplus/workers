@@ -84,7 +84,12 @@ class Pool {
         this.heartbeatInterval = options?.heartbeatInterval ?? 0;
         this.heartbeatTimeout = options?.heartbeatTimeout ?? 0;
         this.idleTimeout = options?.idleTimeout ?? 0;
-        this.limit = options?.limit && options.limit < MAX_CONCURRENCY ? options.limit : MAX_CONCURRENCY;
+        this.limit = options?.limit ?? MAX_CONCURRENCY;
+
+        if (!Number.isInteger(this.limit) || this.limit <= 0) {
+            throw new Error('@esportsplus/workers: limit must be a positive integer');
+        }
+
         this.maxTasksPerWorker = options?.maxTasksPerWorker ?? 0;
         this.shutdownTimeout = options?.shutdownTimeout ?? DEFAULT_SHUTDOWN_TIMEOUT;
         this.url = url;
