@@ -1155,6 +1155,49 @@ describe('Pool', () => {
     });
 
 
+    describe('context (FIFO no-op)', () => {
+        it('context() on a FIFO pool is a no-op: no throw, queue + dispatch order unchanged', async () => {
+            let p = createPool<{ work: (n: number) => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            // Saturate: 1 running (blocker) + 2 queued
+            let p1 = p().work(1);
+            let p2 = p().work(2);
+            let p3 = p().work(3);
+
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().queued).toBe(2);
+
+            // No priority scheduler → context() must early-return without throwing or mutating the queue
+            expect(() => p.context({ priority: 'whatever' })).not.toThrow();
+            expect(p.stats().queued).toBe(2);
+            expect(p.stats().busy).toBe(1);
+
+            // Free the worker: FIFO order preserved — task 2 dispatched before task 3
+            simulateResult(worker, captureUuid(worker, 0), 10);
+
+            await expect(p1).resolves.toBe(10);
+
+            let payload2 = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payload2.args).toEqual([2]);
+
+            simulateResult(worker, payload2.uuid as string, 20);
+
+            await expect(p2).resolves.toBe(20);
+
+            let payload3 = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payload3.args).toEqual([3]);
+
+            simulateResult(worker, payload3.uuid as string, 30);
+
+            await expect(p3).resolves.toBe(30);
+            await p.shutdown();
+        });
+    });
+
+
     describe('enhanced statistics', () => {
         it('shows zero averages initially', async () => {
             let p = createPool<{ work: () => number }>('test.js', { limit: 2 });
@@ -1341,6 +1384,92 @@ describe('Pool', () => {
 
             expect(stats.completed).toBe(1);
             expect(stats.avgRunTime).toBeGreaterThanOrEqual(0);
+        });
+
+        it('avgRunTime equals the exact per-task hold duration', async () => {
+            vi.useFakeTimers({ now: 0, toFake: ['Date', 'clearTimeout', 'performance', 'setTimeout'] });
+
+            // Sanity: performance.now() is actually controlled by the fake clock
+            expect(performance.now()).toBe(0);
+
+            // Advance off zero before the first dispatch so every startedAt is truthy
+            // (completion guard is `if (task.startedAt)`, which treats startedAt === 0 as unstarted).
+            vi.advanceTimersByTime(1000);
+
+            let held = 75;
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            for (let i = 0; i < 4; i++) {
+                let promise = p().work();
+                let taskUuid = captureUuid(worker);
+
+                // Hold the task a known duration before it completes
+                vi.advanceTimersByTime(held);
+                simulateResult(worker, taskUuid, i);
+
+                await expect(promise).resolves.toBe(i);
+            }
+
+            let stats = p.stats();
+
+            expect(stats.completed).toBe(4);
+            // totalRunTime = 4 * held, completed = 4 → mean === held
+            expect(stats.avgRunTime).toBe(held);
+
+            await p.shutdown();
+        });
+
+        it('avgWaitTime reflects the exact queue wait', async () => {
+            vi.useFakeTimers({ now: 0, toFake: ['Date', 'clearTimeout', 'performance', 'setTimeout'] });
+
+            expect(performance.now()).toBe(0);
+
+            let waited = 200;
+            let p = createPool<{ work: (n: number) => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            // Blocker dispatched immediately (wait 0); second task queued (queuedAt = 0)
+            let p1 = p().work(1);
+            let p2 = p().work(2);
+
+            expect(p.stats().queued).toBe(1);
+
+            // Queued task waits `waited` ms before the worker frees and dispatches it
+            vi.advanceTimersByTime(waited);
+            simulateResult(worker, captureUuid(worker, 0), 10);
+
+            await expect(p1).resolves.toBe(10);
+
+            // dispatched = 2: blocker waited 0, queued task waited `waited` → mean === waited / 2
+            expect(p.stats().avgWaitTime).toBe(waited / 2);
+
+            simulateResult(worker, captureUuid(worker), 20);
+
+            await expect(p2).resolves.toBe(20);
+            await p.shutdown();
+        });
+
+        it('avgRunTime stays 0 when nothing completes (timeout only — zero-completion guard)', async () => {
+            vi.useFakeTimers({ now: 0, toFake: ['Date', 'clearTimeout', 'performance', 'setTimeout'] });
+
+            expect(performance.now()).toBe(0);
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let promise = p({ timeout: 100 }).work();
+
+            vi.advanceTimersByTime(100);
+
+            await expect(promise).rejects.toThrow('task timed out');
+
+            let stats = p.stats();
+
+            // completed === 0 → the `completed > 0 ? … : 0` guard returns 0, not NaN
+            expect(stats.completed).toBe(0);
+            expect(stats.timedOut).toBe(1);
+            expect(stats.avgRunTime).toBe(0);
+
+            await p.shutdown();
         });
     });
 
