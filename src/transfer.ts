@@ -46,6 +46,7 @@ function collectTransferables(value: unknown): Transferable[] {
     }
 
     let result: Transferable[] = [],
+        seen = new WeakSet<object>(),
         stack = [value];
 
     while (stack.length > 0) {
@@ -54,6 +55,12 @@ function collectTransferables(value: unknown): Transferable[] {
         if (!current || typeof current !== 'object') {
             continue;
         }
+
+        if (seen.has(current)) {
+            continue;
+        }
+
+        seen.add(current);
 
         if (current instanceof ArrayBuffer ||
             current instanceof MessagePort ||
