@@ -1036,7 +1036,7 @@ describe('Pool', () => {
             await p.shutdown();
         });
 
-        it('does not terminate retained worker after heartbeat timeout', async () => {
+        it('does not terminate healthy retained worker that keeps heartbeating', async () => {
             vi.useFakeTimers();
 
             let p = createPool<{ hold: () => string }>('test.js', {
@@ -1049,13 +1049,16 @@ describe('Pool', () => {
             let worker = mockWorkers[0];
             let taskUuid = captureUuid(worker);
 
-            // Worker signals it wants to retain the task
+            // Worker signals it wants to retain the task — heartbeat deadline keeps running
             worker._emit('message', { retained: true, uuid: taskUuid });
 
-            // Advance well past heartbeat timeout
-            vi.advanceTimersByTime(2000);
+            // Worker keeps proving liveness across several would-be deadlines
+            for (let i = 0; i < 8; i++) {
+                vi.advanceTimersByTime(400);
+                worker._emit('message', { heartbeat: true, uuid: taskUuid });
+            }
 
-            // Worker should NOT be terminated — heartbeat timer was cleared on retain
+            // Worker should NOT be terminated — each heartbeat resets the deadline
             expect(worker.terminate).not.toHaveBeenCalled();
             expect(p.stats().busy).toBe(1);
 
@@ -1064,6 +1067,35 @@ describe('Pool', () => {
             simulateResult(worker, taskUuid, 'done');
 
             await expect(promise).resolves.toBe('done');
+            await p.shutdown();
+        });
+
+        it('terminates retained worker that goes silent past heartbeat timeout', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ hold: () => string }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let promise = p().hold();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            promise.catch(() => {});
+
+            // Worker retains then goes silent — sends no further heartbeats
+            worker._emit('message', { retained: true, uuid: taskUuid });
+
+            // Advance past the heartbeat deadline
+            vi.advanceTimersByTime(500);
+
+            // Dead retained worker detected: terminated, replaced, retained task rejected
+            await expect(promise).rejects.toThrow('worker heartbeat timeout after 500ms');
+            expect(worker.terminate).toHaveBeenCalled();
+            expect(p.stats().workers).toBe(1);
+
             await p.shutdown();
         });
 

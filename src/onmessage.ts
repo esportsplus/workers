@@ -81,6 +81,7 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
         if (data.release) {
             let handler = cleanups.get(data.uuid);
 
+            clearHeartbeat(data.uuid);
             cleanups.delete(data.uuid);
 
             if (handler) {
@@ -152,8 +153,6 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
         try {
             let result = await action.call(context, ...args);
 
-            clearHeartbeat(uuid);
-
             if (retained) {
                 if (cleanup) {
                     cleanups.set(uuid, cleanup);
@@ -162,6 +161,7 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
                 worker.postMessage({ retained: true, uuid });
             }
             else {
+                clearHeartbeat(uuid);
                 worker.postMessage({ result, uuid }, collectTransferables(result));
             }
         }

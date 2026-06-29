@@ -174,8 +174,17 @@ class Pool {
 
             // Task retained — worker stays bound
             if (data.retained) {
-                this.clearHeartbeatTimer(worker);
                 this.clearTaskTimeout(task);
+
+                // Heartbeat tracks worker liveness (orthogonal to task duration), so it must
+                // outlive retention; restart the deadline so a hung retained worker is still detected.
+                if (this.heartbeatInterval > 0 && this.heartbeatTimeout > 0) {
+                    this.startHeartbeatTimer(worker);
+                }
+                else {
+                    this.clearHeartbeatTimer(worker);
+                }
+
                 task.retained = true;
                 task.worker = worker;
                 task.promise.on('release', () => {

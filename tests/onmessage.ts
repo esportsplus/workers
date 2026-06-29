@@ -407,6 +407,43 @@ describe('onmessage', () => {
             expect(heartbeatCalls.length).toBe(0);
         });
 
+        it('keeps emitting heartbeats after retain and stops after release', async () => {
+            let handler = await setup({
+                hold: function (this: { retain: (fn?: () => void) => void }) {
+                    this.retain();
+                }
+            });
+
+            vi.useFakeTimers();
+
+            // Retain completes synchronously; worker posts { retained: true } and keeps the interval
+            await handler({ data: { args: [], heartbeat: true, heartbeatInterval: 100, path: 'hold', uuid: 'hb-retain' } });
+
+            postMessageSpy.mockClear();
+
+            // Heartbeats keep flowing through retention
+            vi.advanceTimersByTime(300);
+
+            let afterRetain = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            ).length;
+
+            expect(afterRetain).toBeGreaterThanOrEqual(3);
+
+            // Pool releases the task — heartbeat must stop (clearHeartbeat runs synchronously)
+            await handler({ data: { release: true, uuid: 'hb-retain' } });
+
+            postMessageSpy.mockClear();
+
+            vi.advanceTimersByTime(500);
+
+            let afterRelease = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            ).length;
+
+            expect(afterRelease).toBe(0);
+        });
+
         it('clears heartbeat when action path does not exist', async () => {
             let handler = await setup({ fn: () => 1 });
 
