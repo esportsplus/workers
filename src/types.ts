@@ -6,6 +6,8 @@ interface Actions {
     [key: PropertyKey]: Actions | ((...args: unknown[]) => unknown)
 };
 
+type Comparator<Meta, Ctx> = (meta: Meta, ctx: Ctx) => number;
+
 type Infer<T> =
     T extends (...args: infer P) => Promise<infer R>
         ? (...args: P) => Promise<R>
@@ -25,6 +27,14 @@ type InferWithEvents<T, E extends Record<string, Record<string, unknown>>> = {
                 : never;
 };
 
+// Pending-task store the pool dequeues from. The default FIFO queue and the priority min-heap both satisfy
+// it, so the pool consumes either through one field.
+type PendingStore = {
+    add(task: Task): void;
+    readonly length: number;
+    next(): Task | undefined;
+};
+
 type PoolOptions = {
     heartbeatInterval?: number;
     heartbeatTimeout?: number;
@@ -34,6 +44,7 @@ type PoolOptions = {
     maxTasksPerWorker?: number;
     retries?: number;
     retryDelay?: number;
+    schedule?: PriorityScheduler;
 };
 
 type PoolStats = {
@@ -49,6 +60,14 @@ type PoolStats = {
     workers: number;
 };
 
+// Priority-scheduling config (built by `priority(...)`): queued tasks dispatch by ascending
+// `compare(meta, context)`; `pool.context(next)` re-ranks them against an updated context.
+type PriorityScheduler<Meta = unknown, Ctx = unknown> = {
+    compare: Comparator<Meta, Ctx>;
+    context: Ctx;
+    kind: 'priority';
+};
+
 type ProxyTarget<T> = {
     (): T;
     options?: ScheduleOptions;
@@ -57,6 +76,8 @@ type ProxyTarget<T> = {
 
 type ScheduleOptions = {
     maxRetryDelay?: number;
+    // Opaque per-task key read by a priority scheduler's `compare`. Ignored under FIFO scheduling.
+    meta?: unknown;
     retries?: number;
     retryDelay?: number;
     signal?: AbortSignal;
@@ -68,7 +89,10 @@ type Task = {
     attempts: number;
     maxRetries: number;
     maxRetryDelay: number;
+    meta?: unknown;
     path: string;
+    // Cached priority key (compare(meta, context)) while the task sits in a priority queue; unused FIFO.
+    priority?: number;
     promise: TaskPromise<unknown, Record<string, unknown>>;
     queuedAt: number;
     reject: (reason: unknown) => void;
@@ -105,8 +129,9 @@ type WorkerPort = {
 
 export type {
     Actions,
+    Comparator,
     Infer, InferWithEvents,
-    PoolOptions, PoolStats, ProxyTarget,
+    PendingStore, PoolOptions, PoolStats, PriorityScheduler, ProxyTarget,
     ScheduleOptions,
     Task,
     WorkerContext, WorkerLike, WorkerPort

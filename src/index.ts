@@ -1,9 +1,10 @@
+import type { Actions } from './onmessage';
+import { priority } from './schedule';
+import type { Comparator, PriorityScheduler, WorkerContext } from './types';
 import onmessage from './onmessage';
 import pool from './pool';
-import type { Actions } from './onmessage';
-import type { WorkerContext } from './types';
 
 
-export default { onmessage, pool };
-export { onmessage, pool };
-export type { Actions, WorkerContext };
+export default { onmessage, pool, priority };
+export { onmessage, pool, priority };
+export type { Actions, Comparator, PriorityScheduler, WorkerContext };

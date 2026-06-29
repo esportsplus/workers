@@ -1,8 +1,9 @@
-import queue from '@esportsplus/queue';
-import { collectTransferables } from './transfer';
-import { TaskPromise } from './task';
-import { InferWithEvents, PoolOptions, PoolStats, ProxyTarget, ScheduleOptions, Task, WorkerLike } from './types';
 import { uuid, type UUID } from '@esportsplus/utilities';
+import { PriorityQueue } from './schedule';
+import { TaskPromise } from './task';
+import { collectTransferables } from './transfer';
+import { Comparator, InferWithEvents, PendingStore, PoolOptions, PoolStats, PriorityScheduler, ProxyTarget, ScheduleOptions, Task, WorkerLike } from './types';
+import queue from '@esportsplus/queue';
 
 
 const IS_NODE = typeof process !== 'undefined' && process.versions?.node;
@@ -45,6 +46,7 @@ class NodeWorkerWrapper implements WorkerLike {
 class Pool {
     private available: WorkerLike[] = [];
     private cleanup: (() => void) | null = null;
+    private compare: Comparator<unknown, unknown> | null = null;
     private completed = 0;
     private defaultMaxRetryDelay: number;
     private defaultRetries: number;
@@ -59,7 +61,9 @@ class Pool {
     private limit: number;
     private maxTasksPerWorker: number;
     private pending = new Map<WorkerLike, Task>();
-    private queue: ReturnType<typeof queue<Task>>;
+    private priorityContext: unknown = undefined;
+    private priorityQueue: PriorityQueue | null = null;
+    private queue: PendingStore;
     private retried = 0;
     private tasks = new Map<UUID, Task>();
     private tasksPerWorker = new Map<WorkerLike, number>();
@@ -79,8 +83,19 @@ class Pool {
         this.idleTimeout = options?.idleTimeout ?? 0;
         this.limit = options?.limit && options.limit < MAX_CONCURRENCY ? options.limit : MAX_CONCURRENCY;
         this.maxTasksPerWorker = options?.maxTasksPerWorker ?? 0;
-        this.queue = queue<Task>(64);
         this.url = url;
+
+        let schedule: PriorityScheduler | undefined = options?.schedule;
+
+        if (schedule) {
+            this.compare = schedule.compare as Comparator<unknown, unknown>;
+            this.priorityContext = schedule.context;
+            this.priorityQueue = new PriorityQueue(this.compare, this.priorityContext);
+            this.queue = this.priorityQueue;
+        }
+        else {
+            this.queue = queue<Task>(64);
+        }
 
         // Only pre-warm workers if idle timeout is disabled
         if (!this.idleTimeout) {
@@ -394,6 +409,16 @@ class Pool {
     }
 
 
+    context(next: unknown): void {
+        if (!this.priorityQueue) {
+            return;
+        }
+
+        this.priorityContext = next;
+        this.priorityQueue.reprioritize(next);
+        this.processQueue();
+    }
+
     schedule<T, E extends Record<string, unknown>>(
         path: string,
         values: unknown[],
@@ -410,6 +435,7 @@ class Pool {
                 attempts: 0,
                 maxRetries: options?.retries ?? this.defaultRetries,
                 maxRetryDelay: options?.maxRetryDelay ?? this.defaultMaxRetryDelay,
+                meta: options?.meta,
                 path,
                 promise: promise as TaskPromise<unknown, Record<string, unknown>>,
                 queuedAt: performance.now(),
@@ -585,6 +611,10 @@ export default <T extends Record<string, unknown>, E extends Record<string, Reco
         ) as unknown as InferWithEvents<T, E>;
 
     return Object.assign(proxy, {
+        // Update the priority scheduler's shared context and re-rank every queued task against it. No-op
+        // when the pool is FIFO. `ctx` is `unknown` here — the typed shape is pinned by `priority(...)`'s
+        // `compare`; narrow as needed at the call site.
+        context: (ctx: unknown) => pool.context(ctx),
         shutdown: () => pool.shutdown(),
         stats: () => pool.stats()
     });
