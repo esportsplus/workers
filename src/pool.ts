@@ -6,6 +6,8 @@ import { Comparator, InferWithEvents, PendingStore, PoolOptions, PoolStats, Prio
 import queue from '@esportsplus/queue';
 
 
+const DEFAULT_SHUTDOWN_TIMEOUT = 5000;
+
 const IS_NODE = typeof process !== 'undefined' && process.versions?.node;
 
 const MAX_CONCURRENCY = (
@@ -65,6 +67,7 @@ class Pool {
     private priorityQueue: PriorityQueue | null = null;
     private queue: PendingStore;
     private retried = 0;
+    private shutdownTimeout: number;
     private tasks = new Map<UUID, Task>();
     private tasksPerWorker = new Map<WorkerLike, number>();
     private timedOut = 0;
@@ -83,6 +86,7 @@ class Pool {
         this.idleTimeout = options?.idleTimeout ?? 0;
         this.limit = options?.limit && options.limit < MAX_CONCURRENCY ? options.limit : MAX_CONCURRENCY;
         this.maxTasksPerWorker = options?.maxTasksPerWorker ?? 0;
+        this.shutdownTimeout = options?.shutdownTimeout ?? DEFAULT_SHUTDOWN_TIMEOUT;
         this.url = url;
 
         let schedule: PriorityScheduler | undefined = options?.schedule;
@@ -408,6 +412,17 @@ class Pool {
         );
     }
 
+    private teardownWorkers() {
+        for (let i = 0, n = this.workers.length; i < n; i++) {
+            this.workers[i].terminate();
+        }
+
+        this.available.length = 0;
+        this.tasksPerWorker.clear();
+        this.workers.length = 0;
+        this.tasks.clear();
+    }
+
 
     context(next: unknown): void {
         if (!this.priorityQueue) {
@@ -535,33 +550,45 @@ class Pool {
         // If no pending tasks, resolve immediately
         if (this.pending.size === 0) {
             this.cleanup = () => {};
-
-            for (let i = 0, n = this.workers.length; i < n; i++) {
-                this.workers[i].terminate();
-            }
-
-            this.available.length = 0;
-            this.tasksPerWorker.clear();
-            this.workers.length = 0;
-            this.tasks.clear();
+            this.teardownWorkers();
 
             return Promise.resolve();
         }
 
-        // Wait for pending tasks to complete
+        // Wait for pending tasks to complete, but force-terminate after the grace window
         return new Promise((resolve) => {
+            let graceTimer: ReturnType<typeof setTimeout> | undefined,
+                settled = false;
+
             this.cleanup = () => {
-                for (let i = 0, n = this.workers.length; i < n; i++) {
-                    this.workers[i].terminate();
+                if (settled) {
+                    return;
                 }
 
-                this.available.length = 0;
-                this.tasksPerWorker.clear();
-                this.workers.length = 0;
-                this.tasks.clear();
-
+                settled = true;
+                clearTimeout(graceTimer);
+                this.teardownWorkers();
                 resolve();
             };
+
+            graceTimer = setTimeout(() => {
+                if (settled) {
+                    return;
+                }
+
+                settled = true;
+
+                for (let [worker, task] of this.pending) {
+                    this.clearHeartbeatTimer(worker);
+                    this.clearTaskTimeout(task);
+                    this.tasks.delete(task.uuid);
+                    task.reject(new Error(`@esportsplus/workers: shutdown forced after ${this.shutdownTimeout}ms timeout`));
+                }
+
+                this.pending.clear();
+                this.teardownWorkers();
+                resolve();
+            }, this.shutdownTimeout);
         });
     }
 

@@ -310,6 +310,56 @@ describe('Pool', () => {
 
             await expect(p.shutdown()).resolves.toBeUndefined();
         });
+
+        it('force-terminates hung workers after shutdownTimeout grace', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, shutdownTimeout: 50 });
+
+            // Dispatch a task that never completes (stays pending)
+            let task = p().work();
+            let worker = mockWorkers[0];
+
+            expect(p.stats().busy).toBe(1);
+
+            // Attach rejection handler before grace fires to avoid unhandled rejection
+            let result = task.catch((e: Error) => e);
+            let shutdownPromise = p.shutdown();
+
+            // Advance past the grace window — forces termination + settles pending task
+            await vi.advanceTimersByTimeAsync(50);
+
+            await expect(shutdownPromise).resolves.toBeUndefined();
+
+            let err = await result;
+
+            expect(err).toBeInstanceOf(Error);
+            expect((err as Error).message).toContain('shutdown forced after 50ms timeout');
+            expect(worker.terminate).toHaveBeenCalled();
+        });
+
+        it('resolves via normal cleanup before grace fires (no forced reject)', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, shutdownTimeout: 5000 });
+
+            let task = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+            let shutdownPromise = p.shutdown();
+
+            // Pending task completes normally before the grace window
+            simulateResult(worker, taskUuid, 42);
+
+            await expect(task).resolves.toBe(42);
+            await expect(shutdownPromise).resolves.toBeUndefined();
+
+            // Advance past what would have been the grace deadline — no forced reject side effects
+            await vi.advanceTimersByTimeAsync(5000);
+
+            expect(worker.terminate).toHaveBeenCalled();
+            expect(p.stats().workers).toBe(0);
+        });
     });
 
 

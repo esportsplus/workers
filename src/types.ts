@@ -36,6 +36,7 @@ type PoolOptions = {
     retries?: number;
     retryDelay?: number;
     schedule?: PriorityScheduler;
+    shutdownTimeout?: number;
 };
 
 type PoolStats = {
