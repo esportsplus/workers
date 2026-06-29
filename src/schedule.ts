@@ -35,6 +35,16 @@ class PriorityQueue {
     }
 
 
+    private priorityOf(meta: unknown): number {
+        let key = this.compare(meta, this.context);
+
+        if (key !== key) {
+            throw new Error('PriorityQueue: compare returned NaN');
+        }
+
+        return key;
+    }
+
     private siftDown(start: number): void {
         let heap = this.heap,
             i = start,
@@ -88,7 +98,7 @@ class PriorityQueue {
 
 
     add(task: Task): void {
-        task.priority = this.compare(task.meta, this.context);
+        task.priority = this.priorityOf(task.meta);
         this.heap.push(task);
         this.siftUp(this.heap.length - 1);
     }
@@ -118,7 +128,7 @@ class PriorityQueue {
         this.context = context;
 
         for (let i = 0, n = heap.length; i < n; i++) {
-            heap[i].priority = this.compare(heap[i].meta, context);
+            heap[i].priority = this.priorityOf(heap[i].meta);
         }
 
         for (let i = (heap.length >> 1) - 1; i >= 0; i--) {

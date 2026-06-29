@@ -154,6 +154,49 @@ describe('Pool priority scheduling', () => {
         await workers.shutdown();
     });
 
+    it('throws when compare returns NaN for a queued task', async () => {
+        let workers = createPool<{ run: (id: number) => Promise<void> }>('test.js', {
+            limit: 1,
+            schedule: priority<{ d: number }, Record<string, never>>({
+                compare: (meta) => meta.d,
+                context: {}
+            })
+        });
+        let worker = mockWorkers[0];
+
+        // Blocker saturates the single worker so the next submission is QUEUED (runs add on the heap).
+        workers({ meta: { d: 5 } }).run(0);
+
+        expect(() => workers({ meta: { d: NaN } }).run(1)).toThrow('PriorityQueue: compare returned NaN');
+
+        complete(worker, 0);
+        await workers.shutdown();
+    });
+
+    it('throws when context() reprioritizes a queued task to a NaN key', async () => {
+        let workers = createPool<{ run: (id: number) => Promise<void> }>('test.js', {
+            limit: 1,
+            schedule: priority<{ k: number }, { x: number }>({
+                compare: (meta, ctx) => meta.k - ctx.x,
+                context: { x: 0 }
+            })
+        });
+        let worker = mockWorkers[0];
+
+        // Blocker saturates the worker; the next task queues with a finite key (k=Infinity, x=0 -> Infinity).
+        let blocker = workers({ meta: { k: 0 } }).run(0),
+            queued = workers({ meta: { k: Infinity } }).run(1);
+
+        // x=Infinity makes the queued task's key Infinity - Infinity = NaN on re-rank.
+        expect(() => workers.context({ x: Infinity })).toThrow('PriorityQueue: compare returned NaN');
+
+        // The queued task survives in the heap with a NaN key; free the worker so it dispatches, then drain.
+        complete(worker, 0);
+        complete(worker, 1);
+
+        await Promise.allSettled([blocker, queued, workers.shutdown()]);
+    });
+
     it('skips an aborted queued task at dequeue and dispatches the next by priority', async () => {
         let workers = createPool<{ run: (id: number) => Promise<void> }>('test.js', {
             limit: 1,
