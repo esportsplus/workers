@@ -1,6 +1,7 @@
 import { createRequire } from 'module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { priority } from '../src/schedule';
+import { priority, PriorityQueue } from '../src/schedule';
+import { Task } from '../src/types';
 
 
 type MockNodeWorker = {
@@ -226,5 +227,109 @@ describe('Pool priority scheduling', () => {
 
         complete(worker, 2);
         await workers.shutdown();
+    });
+});
+
+
+function task(meta: number): Task {
+    return { meta } as unknown as Task;
+}
+
+function drain(queue: PriorityQueue): unknown[] {
+    let out: unknown[] = [],
+        next = queue.next();
+
+    while (next) {
+        out.push(next.meta);
+        next = queue.next();
+    }
+
+    return out;
+}
+
+
+describe('PriorityQueue', () => {
+    it('next() on an empty heap returns undefined', () => {
+        let queue = new PriorityQueue((m) => m as number, undefined);
+
+        expect(queue.next()).toBeUndefined();
+        expect(queue.length).toBe(0);
+    });
+
+    it('drains adds in ascending key order across multi-level siftDown', () => {
+        let queue = new PriorityQueue((m) => m as number, undefined);
+
+        for (let n of [5, 3, 8, 1, 9, 2, 7]) {
+            queue.add(task(n));
+        }
+
+        expect(queue.length).toBe(7);
+        expect(drain(queue)).toEqual([1, 2, 3, 5, 7, 8, 9]);
+        expect(queue.length).toBe(0);
+    });
+
+    it('reprioritize re-orders the heap against an inverted context', () => {
+        let queue = new PriorityQueue((m, ctx) => Math.abs((m as number) - (ctx as number)), 0);
+
+        for (let n of [10, 20, 30]) {
+            queue.add(task(n));
+        }
+
+        // ctx=0 -> keys 10,20,30 so the natural drain is ascending (10,20,30).
+        // Re-rank against ctx=30 -> keys 20,10,0 inverts the order to (30,20,10).
+        queue.reprioritize(30);
+
+        expect(drain(queue)).toEqual([30, 20, 10]);
+    });
+
+    it('dequeues every element when keys are equal', () => {
+        let queue = new PriorityQueue((m) => m as number, undefined);
+
+        for (let i = 0; i < 3; i++) {
+            queue.add(task(5));
+        }
+
+        expect(queue.length).toBe(3);
+        expect(queue.next()?.meta).toBe(5);
+        expect(queue.next()?.meta).toBe(5);
+        expect(queue.next()?.meta).toBe(5);
+        expect(queue.length).toBe(0);
+    });
+
+    it('reprioritize on an empty heap does not throw', () => {
+        let queue = new PriorityQueue((m) => m as number, undefined);
+
+        expect(() => queue.reprioritize(1)).not.toThrow();
+        expect(queue.length).toBe(0);
+    });
+
+    it('length reflects adds and nexts', () => {
+        let queue = new PriorityQueue((m) => m as number, undefined);
+
+        expect(queue.length).toBe(0);
+
+        queue.add(task(2));
+        queue.add(task(1));
+        expect(queue.length).toBe(2);
+
+        queue.next();
+        expect(queue.length).toBe(1);
+
+        queue.next();
+        expect(queue.length).toBe(0);
+    });
+});
+
+
+describe('priority() factory', () => {
+    it('returns the compare/context identities tagged with kind priority', () => {
+        let compare = (meta: number, ctx: number) => meta - ctx,
+            context = { x: 1 };
+
+        let result = priority({ compare, context });
+
+        expect(result.kind).toBe('priority');
+        expect(result.compare).toBe(compare);
+        expect(result.context).toBe(context);
     });
 });
