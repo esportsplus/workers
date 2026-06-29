@@ -45,7 +45,7 @@ function clearHeartbeat(uuid: string) {
     }
 }
 
-function flatten(obj: Actions, prefix: string, map: Map<string, Function>): Map<string, Function> {
+function flatten(obj: Actions, prefix: string, map: Map<string, (...args: unknown[]) => unknown>): Map<string, (...args: unknown[]) => unknown> {
     for (let key in obj) {
         let path = prefix ? `${prefix}.${key}` : key,
             value = obj[key];
