@@ -2,13 +2,13 @@
     "author": "ICJR",
     "dependencies": {
         "@esportsplus/queue": "^0.2.0",
-        "@esportsplus/utilities": "^0.27.2"
+        "@esportsplus/utilities": "^0.28.0"
     },
     "description": "Web worker pool",
     "devDependencies": {
-        "@esportsplus/typescript": "^0.10.2",
-        "@types/node": "^25.0.3",
-        "vitest": "^4.1.1"
+        "@esportsplus/typescript": "^0.29.1",
+        "@types/node": "^26.0.1",
+        "vitest": "^4.1.9"
     },
     "main": "./build/index.js",
     "name": "@esportsplus/workers",
