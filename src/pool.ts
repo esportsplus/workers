@@ -276,12 +276,8 @@ class Pool {
                         return;
                     }
 
-                    this.pending.delete(worker);
-                    this.tasks.delete(task.uuid);
-                    this.timedOut++;
+                    this.recycleWorker(worker, task, true);
                     task.reject(new Error(`@esportsplus/workers: task timed out after ${task.timeout}ms`));
-                    this.replaceWorker(worker);
-                    this.available.push(this.createWorker());
                     this.processQueue();
                 },
                 task.timeout
@@ -335,6 +331,19 @@ class Pool {
                 this.replaceWorker(worker);
             }, this.idleTimeout)
         );
+    }
+
+    private recycleWorker(worker: WorkerLike, task: Task, countTimeout: boolean) {
+        this.clearTaskTimeout(task);
+        this.pending.delete(worker);
+        this.tasks.delete(task.uuid);
+
+        if (countTimeout) {
+            this.timedOut++;
+        }
+
+        this.replaceWorker(worker);
+        this.available.push(this.createWorker());
     }
 
     private replaceWorker(worker: WorkerLike) {
@@ -414,13 +423,8 @@ class Pool {
                     return;
                 }
 
-                this.clearTaskTimeout(task);
-                this.pending.delete(worker);
-                this.tasks.delete(task.uuid);
-                this.timedOut++;
+                this.recycleWorker(worker, task, true);
                 task.reject(new Error(`@esportsplus/workers: worker heartbeat timeout after ${this.heartbeatTimeout}ms`));
-                this.replaceWorker(worker);
-                this.available.push(this.createWorker());
                 this.processQueue();
             }, this.heartbeatTimeout)
         );
@@ -496,12 +500,7 @@ class Pool {
                 // If task is pending (running), terminate worker and replace
                 for (let [worker, pendingTask] of this.pending) {
                     if (pendingTask === task) {
-                        this.clearHeartbeatTimer(worker);
-                        this.clearTaskTimeout(task);
-                        this.pending.delete(worker);
-                        this.tasks.delete(task.uuid);
-                        this.replaceWorker(worker);
-                        this.available.push(this.createWorker());
+                        this.recycleWorker(worker, task, false);
                         break;
                     }
                 }
