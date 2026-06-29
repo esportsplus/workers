@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module';
 import { uuid, type UUID } from '@esportsplus/utilities';
+import { cores, spawn } from './platform.node';
 import { PriorityQueue } from './schedule';
 import { TaskPromise } from './task';
 import { collectTransferables } from './transfer';
@@ -9,44 +9,8 @@ import queue from '@esportsplus/queue';
 
 const DEFAULT_SHUTDOWN_TIMEOUT = 5000;
 
-const IS_NODE = typeof process !== 'undefined' && process.versions?.node;
+const MAX_CONCURRENCY = (cores() - 1) || 1;
 
-const nodeRequire = IS_NODE ? createRequire(import.meta.url) : undefined;
-
-const MAX_CONCURRENCY = (
-    IS_NODE ? nodeRequire!('os').cpus().length : navigator.hardwareConcurrency
-) - 1 || 1;
-
-
-class NodeWorkerWrapper implements WorkerLike {
-    private worker: { on(event: string, handler: (...args: unknown[]) => void): void; postMessage(data: unknown, transfer?: Transferable[]): void; terminate(): void };
-
-
-    constructor(url: string) {
-        this.worker = new (nodeRequire!('worker_threads').Worker)(url);
-    }
-
-
-    set onerror(handler: (e: { message?: string }) => void) {
-        this.worker.on('error', (err) => {
-            handler({ message: (err as Error).message });
-        });
-    }
-
-    set onmessage(handler: (e: { data: unknown }) => void) {
-        this.worker.on('message', (data) => {
-            handler({ data });
-        });
-    }
-
-    postMessage(data: unknown, transfer?: Transferable[]) {
-        this.worker.postMessage(data, transfer);
-    }
-
-    terminate() {
-        this.worker.terminate();
-    }
-}
 
 class Pool {
     private available: WorkerLike[] = [];
@@ -134,9 +98,7 @@ class Pool {
     }
 
     private createWorker(): WorkerLike {
-        let worker = IS_NODE
-            ? new NodeWorkerWrapper(this.url)
-            : new Worker(this.url, { type: 'module' }) as unknown as WorkerLike;
+        let worker = spawn(this.url);
 
         worker.onerror = (e) => {
             let task = this.pending.get(worker);

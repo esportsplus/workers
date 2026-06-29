@@ -1,11 +1,6 @@
-import { createRequire } from 'node:module';
+import { workerPort } from './platform.node';
 import { collectTransferables } from './transfer';
 import { Actions, WorkerContext, WorkerPort } from './types';
-
-
-const IS_NODE = typeof process !== 'undefined' && process.versions?.node;
-
-const nodeRequire = IS_NODE ? createRequire(import.meta.url) : undefined;
 
 
 let cleanups = new Map<string, () => void | unknown>(),
@@ -13,30 +8,14 @@ let cleanups = new Map<string, () => void | unknown>(),
 
 
 function adapter(): WorkerPort {
-    // Browser Web Worker
     if (typeof self !== 'undefined' && typeof self.postMessage === 'function') {
         return self as unknown as WorkerPort;
     }
 
-    // Node.js worker_threads
-    try {
-        let { parentPort } = nodeRequire!('worker_threads');
+    let port = workerPort();
 
-        if (parentPort) {
-            return {
-                set onmessage(fn: (e: MessageEvent) => void) {
-                    parentPort.on('message', (data: unknown) => {
-                        fn({ data } as MessageEvent);
-                    });
-                },
-                postMessage: (data: unknown, transfer?: Transferable[]) => {
-                    parentPort.postMessage(data, transfer);
-                }
-            };
-        }
-    }
-    catch {
-        // Not in Node.js or worker_threads not available
+    if (port) {
+        return port;
     }
 
     throw new Error('@esportsplus/workers: must be called from within a worker context');

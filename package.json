@@ -1,5 +1,8 @@
 {
     "author": "ICJR",
+    "browser": {
+        "./build/platform.node.js": "./build/platform.browser.js"
+    },
     "dependencies": {
         "@esportsplus/queue": "^0.2.0",
         "@esportsplus/utilities": "^0.27.2"
