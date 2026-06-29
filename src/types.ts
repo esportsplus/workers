@@ -8,15 +8,6 @@ interface Actions {
 
 type Comparator<Meta, Ctx> = (meta: Meta, ctx: Ctx) => number;
 
-type Infer<T> =
-    T extends (...args: infer P) => Promise<infer R>
-        ? (...args: P) => Promise<R>
-        : T extends (...args: infer P) => infer R
-            ? (...args: P) => Promise<R>
-            : T extends Record<string, unknown>
-                ? { [K in keyof T]: Infer<T[K]> }
-                : never;
-
 type InferWithEvents<T, E extends Record<string, Record<string, unknown>>> = {
     [K in keyof T]: T[K] extends (...args: infer A) => Promise<infer R>
         ? (...args: A) => TaskPromise<R, K extends keyof E ? E[K] : Record<string, unknown>>
@@ -130,7 +121,7 @@ type WorkerPort = {
 export type {
     Actions,
     Comparator,
-    Infer, InferWithEvents,
+    InferWithEvents,
     PendingStore, PoolOptions, PoolStats, PriorityScheduler, ProxyTarget,
     ScheduleOptions,
     Task,
