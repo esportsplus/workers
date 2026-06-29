@@ -471,4 +471,68 @@ describe('collectTransferables', () => {
             expect(result[0]).toBe(stream);
         });
     });
+
+
+    describe('cyclic and shared references', () => {
+        it('terminates on a self-referencing cycle and returns the transferable once', () => {
+            let buf = new ArrayBuffer(8);
+            let o: Record<string, unknown> = { buf };
+
+            o.self = o;
+
+            let result = collectTransferables(o);
+
+            expect(result).toHaveLength(1);
+            expect(result).toContain(buf);
+        });
+
+        it('terminates on a mutual parent-back-reference cycle and returns the transferable once', () => {
+            let buf = new ArrayBuffer(8);
+            let a: Record<string, unknown> = { buf },
+                b: Record<string, unknown> = {};
+
+            a.b = b;
+            b.a = a;
+
+            let result = collectTransferables(a);
+
+            expect(result).toHaveLength(1);
+            expect(result).toContain(buf);
+        });
+
+        it('dedups a diamond where one transferable is reachable via two paths', () => {
+            let buf = new ArrayBuffer(8);
+            let result = collectTransferables({ a: buf, c: { buf } });
+
+            expect(result).toHaveLength(1);
+            expect(result).toContain(buf);
+        });
+
+        it('dedups a shared non-transferable container and finds its inner transferable once', () => {
+            let buf = new ArrayBuffer(8);
+            let shared = { buf };
+
+            let result = collectTransferables({ x: shared, y: shared });
+
+            expect(result).toHaveLength(1);
+            expect(result).toContain(buf);
+        });
+
+        it('finds every distinct transferable once inside a cycle', () => {
+            let a = new ArrayBuffer(4),
+                b = new ArrayBuffer(8),
+                c = new ArrayBuffer(16);
+
+            let root: Record<string, unknown> = { a, nested: { b, deeper: { c } } };
+
+            root.loop = root;
+
+            let result = collectTransferables(root);
+
+            expect(result).toHaveLength(3);
+            expect(result).toContain(a);
+            expect(result).toContain(b);
+            expect(result).toContain(c);
+        });
+    });
 });
