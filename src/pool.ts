@@ -227,7 +227,6 @@ class Pool {
                 task.resolve(data.result);
             }
 
-            // Recycle worker if max tasks reached
             let count = (this.tasksPerWorker.get(worker) ?? 0) + 1;
 
             if (this.maxTasksPerWorker > 0 && count >= this.maxTasksPerWorker) {
@@ -268,7 +267,6 @@ class Pool {
         this.totalWaitTime += now - task.queuedAt;
         task.startedAt = now;
 
-        // Setup timeout
         if (task.timeout && task.timeout > 0) {
             task.timeoutId = setTimeout(
                 () => {
@@ -286,7 +284,6 @@ class Pool {
 
         let payload: Record<string, unknown> = { args: task.values, path: task.path, uuid: task.uuid };
 
-        // Start heartbeat monitoring if enabled
         if (this.heartbeatInterval > 0 && this.heartbeatTimeout > 0) {
             payload.heartbeat = true;
             payload.heartbeatInterval = this.heartbeatInterval;
@@ -304,7 +301,6 @@ class Pool {
         let task = this.queue.next(),
             worker = this.available.pop()!;
 
-        // Skip aborted tasks
         while (task && task.aborted) {
             task = this.queue.next();
         }
@@ -487,7 +483,6 @@ class Pool {
             return promise;
         }
 
-        // Setup abort handler
         if (task.signal) {
             if (task.signal.aborted) {
                 task.reject(new Error('@esportsplus/workers: task aborted'));
@@ -531,21 +526,18 @@ class Pool {
     }
 
     shutdown(): Promise<void> {
-        // Clear all heartbeat timers
         for (let timer of this.heartbeatTimers.values()) {
             clearTimeout(timer);
         }
 
         this.heartbeatTimers.clear();
 
-        // Clear all idle timers
         for (let timer of this.idleTimers.values()) {
             clearTimeout(timer);
         }
 
         this.idleTimers.clear();
 
-        // Reject all queued tasks
         let task = this.queue.next();
 
         while (task) {
@@ -553,14 +545,12 @@ class Pool {
             task = this.queue.next();
         }
 
-        // Release retained tasks
         for (let [worker, task] of this.pending) {
             if (task.retained) {
                 worker.postMessage({ release: true, uuid: task.uuid });
             }
         }
 
-        // If no pending tasks, resolve immediately
         if (this.pending.size === 0) {
             this.cleanup = () => {};
             this.teardownWorkers();
@@ -568,7 +558,6 @@ class Pool {
             return Promise.resolve();
         }
 
-        // Wait for pending tasks to complete, but force-terminate after the grace window
         return new Promise((resolve) => {
             let graceTimer: ReturnType<typeof setTimeout> | undefined,
                 settled = false;
