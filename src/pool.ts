@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { uuid, type UUID } from '@esportsplus/utilities';
 import { PriorityQueue } from './schedule';
 import { TaskPromise } from './task';
@@ -10,8 +11,10 @@ const DEFAULT_SHUTDOWN_TIMEOUT = 5000;
 
 const IS_NODE = typeof process !== 'undefined' && process.versions?.node;
 
+const nodeRequire = IS_NODE ? createRequire(import.meta.url) : undefined;
+
 const MAX_CONCURRENCY = (
-    IS_NODE ? require('os').cpus().length : navigator.hardwareConcurrency
+    IS_NODE ? nodeRequire!('os').cpus().length : navigator.hardwareConcurrency
 ) - 1 || 1;
 
 
@@ -20,7 +23,7 @@ class NodeWorkerWrapper implements WorkerLike {
 
 
     constructor(url: string) {
-        this.worker = new (require('worker_threads').Worker)(url);
+        this.worker = new (nodeRequire!('worker_threads').Worker)(url);
     }
 
 

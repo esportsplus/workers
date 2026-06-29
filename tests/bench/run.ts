@@ -3,13 +3,9 @@
  * Run: npx tsx tests/bench/run.ts
  */
 
-import { createRequire } from 'node:module';
 import { Worker } from 'node:worker_threads';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-
-// Pool source uses require() for conditional Node.js imports — provide it in ESM
-(globalThis as Record<string, unknown>).require ??= createRequire(import.meta.url);
 
 let { default: createPool } = await import('../../src/pool');
 

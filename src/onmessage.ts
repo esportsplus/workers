@@ -1,5 +1,11 @@
+import { createRequire } from 'node:module';
 import { collectTransferables } from './transfer';
 import { Actions, WorkerContext, WorkerPort } from './types';
+
+
+const IS_NODE = typeof process !== 'undefined' && process.versions?.node;
+
+const nodeRequire = IS_NODE ? createRequire(import.meta.url) : undefined;
 
 
 let cleanups = new Map<string, () => void | unknown>(),
@@ -14,7 +20,7 @@ function adapter(): WorkerPort {
 
     // Node.js worker_threads
     try {
-        let { parentPort } = require('worker_threads');
+        let { parentPort } = nodeRequire!('worker_threads');
 
         if (parentPort) {
             return {
