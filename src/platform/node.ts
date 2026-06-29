@@ -1,8 +1,6 @@
-import { createRequire } from 'node:module';
+import { cpus } from 'node:os';
+import { Worker, parentPort } from 'node:worker_threads';
 import { WorkerLike, WorkerPort } from '../types';
-
-
-const nodeRequire = createRequire(import.meta.url);
 
 
 type NodeWorker = {
@@ -17,7 +15,7 @@ class NodeWorkerWrapper implements WorkerLike {
 
 
     constructor(url: string) {
-        this.worker = new (nodeRequire('worker_threads').Worker)(url);
+        this.worker = new Worker(url) as unknown as NodeWorker;
     }
 
 
@@ -43,25 +41,25 @@ class NodeWorkerWrapper implements WorkerLike {
 }
 
 
-const cores = (): number => nodeRequire('os').cpus().length;
+const cores = (): number => cpus().length;
 
 const spawn = (url: string): WorkerLike => new NodeWorkerWrapper(url);
 
 const workerPort = (): WorkerPort | null => {
-    let parentPort = nodeRequire('worker_threads').parentPort;
-
     if (!parentPort) {
         return null;
     }
 
+    let port = parentPort as unknown as NodeWorker;
+
     return {
         set onmessage(fn: (e: MessageEvent) => void) {
-            parentPort.on('message', (data: unknown) => {
+            port.on('message', (data: unknown) => {
                 fn({ data } as MessageEvent);
             });
         },
         postMessage: (data: unknown, transfer?: Transferable[]) => {
-            parentPort.postMessage(data, transfer);
+            port.postMessage(data, transfer);
         }
     };
 };

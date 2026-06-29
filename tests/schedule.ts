@@ -1,4 +1,3 @@
-import { createRequire } from 'module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { priority, PriorityQueue } from '../src/schedule';
 import { Task } from '../src/types';
@@ -11,38 +10,41 @@ type MockNodeWorker = {
     terminate: ReturnType<typeof vi.fn>;
 };
 
-let mockWorkers: MockNodeWorker[] = [];
+const { createMockNodeWorker, mockWorkers } = vi.hoisted(() => {
+    let mockWorkers: MockNodeWorker[] = [];
 
-function createMockNodeWorker(): MockNodeWorker {
-    let handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
+    function createMockNodeWorker(): MockNodeWorker {
+        let handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
 
-    let worker: MockNodeWorker = {
-        _emit(event: string, ...args: unknown[]) {
-            for (let fn of handlers[event] ?? []) {
-                fn(...args);
-            }
-        },
-        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
-            (handlers[event] ??= []).push(handler);
-        }),
-        postMessage: vi.fn(),
-        terminate: vi.fn()
-    };
+        let worker: MockNodeWorker = {
+            _emit(event: string, ...args: unknown[]) {
+                for (let fn of handlers[event] ?? []) {
+                    fn(...args);
+                }
+            },
+            on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+                (handlers[event] ??= []).push(handler);
+            }),
+            postMessage: vi.fn(),
+            terminate: vi.fn()
+        };
 
-    mockWorkers.push(worker);
-    return worker;
-}
-
-let nodeRequire = createRequire(import.meta.url);
-let workerThreadsModule = nodeRequire('worker_threads') as Record<string, unknown>;
-
-class MockWorkerClass {
-    constructor(_url: string) {
-        return createMockNodeWorker() as unknown as MockWorkerClass;
+        mockWorkers.push(worker);
+        return worker;
     }
-}
 
-workerThreadsModule.Worker = MockWorkerClass;
+    return { createMockNodeWorker, mockWorkers };
+});
+
+vi.mock('node:worker_threads', () => {
+    class MockWorkerClass {
+        constructor(_url: string) {
+            return createMockNodeWorker() as unknown as MockWorkerClass;
+        }
+    }
+
+    return { Worker: MockWorkerClass, parentPort: null };
+});
 
 
 // The args[0] of the i-th task the worker was handed — i.e. the dispatch order, by the id we submit.
@@ -64,8 +66,7 @@ describe('Pool priority scheduling', () => {
     let createPool: typeof import('../src/pool').default;
 
     beforeEach(async () => {
-        mockWorkers = [];
-        workerThreadsModule.Worker = MockWorkerClass;
+        mockWorkers.length = 0;
         createPool = (await import('../src/pool')).default;
     });
 
