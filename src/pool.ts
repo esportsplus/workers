@@ -260,12 +260,23 @@ class Pool {
     }
 
     private processQueue() {
-        if (this.cleanup || this.available.length === 0 || this.queue.length === 0) {
+        if (this.cleanup || this.queue.length === 0) {
             return;
         }
 
-        let task = this.queue.next(),
-            worker = this.available.pop()!;
+        // Mirrors the create-on-demand in schedule()/retry(): a crash can drop the pool to
+        // zero available workers with queued work, so self-heal rather than strand the task.
+        let worker = this.available.pop();
+
+        if (!worker && this.workers.length < this.limit) {
+            worker = this.createWorker();
+        }
+
+        if (!worker) {
+            return;
+        }
+
+        let task = this.queue.next();
 
         while (task && task.aborted) {
             task = this.queue.next();

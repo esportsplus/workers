@@ -525,6 +525,78 @@ describe('Pool', () => {
 
             await p.shutdown();
         });
+
+        it('self-heals queued task when crash drops pool to zero workers', async () => {
+            let p = createPool<{ work: (n: number) => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            // Task A occupies the sole worker; task B is queued
+            let pA = p().work(1);
+            let pB = p().work(2);
+
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().queued).toBe(1);
+
+            // Worker crashes while A is in-flight: rejects A, removes worker (pool hits zero)
+            worker._emit('error', new Error('worker crashed'));
+
+            await expect(pA).rejects.toThrow('worker crashed');
+
+            // processQueue self-healed: B dispatched to a freshly created worker, not stranded
+            expect(mockWorkers.length).toBe(2);
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().queued).toBe(0);
+
+            let newWorker = mockWorkers[1];
+
+            simulateResult(newWorker, captureUuid(newWorker), 20);
+
+            await expect(pB).resolves.toBe(20);
+            await p.shutdown();
+        });
+
+        it('preserves FIFO order when an aborted queue head is drained mid-busy', async () => {
+            let p = createPool<{ work: (n: number) => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            // Task A occupies the sole worker; queue = [aborted head, live B, live C]
+            let pA = p().work(0);
+
+            let controller = new AbortController();
+            let pHead = p({ signal: controller.signal }).work(1);
+            let pB = p().work(2);
+            let pC = p().work(3);
+
+            expect(p.stats().queued).toBe(3);
+
+            // Abort the queue head while all workers are busy and at capacity:
+            // processQueue runs with no obtainable worker — must not reorder the live tail
+            controller.abort();
+
+            await expect(pHead).rejects.toThrow('task aborted');
+
+            // Complete A — queue drains the aborted head, then dispatches B before C
+            simulateResult(worker, captureUuid(worker, 0), 10);
+
+            await expect(pA).resolves.toBe(10);
+
+            let payloadB = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payloadB.args).toEqual([2]);
+
+            simulateResult(worker, payloadB.uuid as string, 20);
+
+            await expect(pB).resolves.toBe(20);
+
+            let payloadC = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payloadC.args).toEqual([3]);
+
+            simulateResult(worker, payloadC.uuid as string, 30);
+
+            await expect(pC).resolves.toBe(30);
+            await p.shutdown();
+        });
     });
 
 
