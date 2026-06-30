@@ -158,7 +158,7 @@ index.ts — barrel entry (rank #9)
 |--------|------|-------|
 | index.ts | tests/index.ts | barrel export bindings |
 | onmessage.ts | tests/onmessage.ts | |
-| pool.ts | tests/pool.ts | largest suite (limit, shutdown, heartbeat, retry, stats) |
+| pool.ts | tests/pool.ts | largest suite (limit, shutdown, heartbeat, retry, stats, priority scheduling, option validation) |
 | schedule.ts | tests/schedule.ts | PriorityQueue heap + priority() factory + NaN |
 | task.ts | tests/task.ts | |
 | transfer.ts | tests/transfer.ts | cyclic + diamond dedup |
@@ -166,7 +166,7 @@ index.ts — barrel entry (rank #9)
 | platform/browser.ts | tests/platform-browser.ts | cores/spawn/workerPort (F-25) |
 | bench | tests/bench/{run,transfer}.ts, echo-worker.cjs | collectTransferables micro-bench (+ shallow-transferable cases) |
 
-**Gaps**: none outstanding — the `platform/*` direct-coverage gaps were closed by F-24/F-25.
+**Gaps**: none outstanding — `platform/*` closed by F-24/F-25; pool priority-scheduler integration + numeric() per-field validation closed by F-53/F-54 (suite 267 passing).
 
 ## 10. Recent History
 
