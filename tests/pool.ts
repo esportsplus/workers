@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { priority } from '../src/schedule';
 
 
 type MockNodeWorker = {
@@ -1500,6 +1501,89 @@ describe('Pool', () => {
             simulateResult(worker, payload3.uuid as string, 30);
 
             await expect(p3).resolves.toBe(30);
+            await p.shutdown();
+        });
+    });
+
+
+    describe('priority scheduling', () => {
+        it('dispatches queued tasks in comparator order, not FIFO', async () => {
+            let p = createPool<{ work: (label: string) => string }>('test.js', {
+                limit: 1,
+                schedule: priority({
+                    compare: (meta: { priority: number }) => meta.priority,
+                    context: {}
+                })
+            });
+            let worker = mockWorkers[0];
+
+            let pA = p({ meta: { priority: 0 } }).work('A');
+            let pB = p({ meta: { priority: 5 } }).work('B');
+            let pC = p({ meta: { priority: 1 } }).work('C');
+
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().queued).toBe(2);
+
+            simulateResult(worker, captureUuid(worker, 0), 'a');
+
+            await expect(pA).resolves.toBe('a');
+
+            let payloadC = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payloadC.args).toEqual(['C']);
+
+            simulateResult(worker, payloadC.uuid as string, 'c');
+
+            await expect(pC).resolves.toBe('c');
+
+            let payloadB = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payloadB.args).toEqual(['B']);
+
+            simulateResult(worker, payloadB.uuid as string, 'b');
+
+            await expect(pB).resolves.toBe('b');
+            await p.shutdown();
+        });
+
+        it('context() reprioritizes the queue before the next dispatch', async () => {
+            let p = createPool<{ work: (label: string) => string }>('test.js', {
+                limit: 1,
+                schedule: priority({
+                    compare: (meta: { priority: number }, ctx: { invert: boolean }) => ctx.invert ? -meta.priority : meta.priority,
+                    context: { invert: false }
+                })
+            });
+            let worker = mockWorkers[0];
+
+            let pA = p({ meta: { priority: 0 } }).work('A');
+            let pB = p({ meta: { priority: 1 } }).work('B');
+            let pC = p({ meta: { priority: 2 } }).work('C');
+
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().queued).toBe(2);
+
+            expect(() => p.context({ invert: true })).not.toThrow();
+
+            simulateResult(worker, captureUuid(worker, 0), 'a');
+
+            await expect(pA).resolves.toBe('a');
+
+            let payloadC = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payloadC.args).toEqual(['C']);
+
+            simulateResult(worker, payloadC.uuid as string, 'c');
+
+            await expect(pC).resolves.toBe('c');
+
+            let payloadB = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payloadB.args).toEqual(['B']);
+
+            simulateResult(worker, payloadB.uuid as string, 'b');
+
+            await expect(pB).resolves.toBe('b');
             await p.shutdown();
         });
     });
