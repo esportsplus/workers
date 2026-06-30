@@ -389,6 +389,51 @@ describe('Pool', () => {
             expect(worker.terminate).toHaveBeenCalled();
             expect(p.stats().workers).toBe(0);
         });
+
+        it('is idempotent: double shutdown with a pending task resolves both at completion, not at grace', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, shutdownTimeout: 5000 });
+
+            let task = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            // Both calls enter while the task is still pending — second must collapse to the first's promise
+            let shutdown1 = p.shutdown();
+            let shutdown2 = p.shutdown();
+
+            expect(shutdown1).toBe(shutdown2);
+
+            // Pending task completes — single cleanup path resolves the one in-flight promise
+            simulateResult(worker, taskUuid, 7);
+
+            await expect(task).resolves.toBe(7);
+            await expect(shutdown1).resolves.toBeUndefined();
+            await expect(shutdown2).resolves.toBeUndefined();
+
+            // No second grace timer armed: a single teardown, both awaiters already resolved
+            expect(worker.terminate).toHaveBeenCalledTimes(1);
+            expect(p.stats().workers).toBe(0);
+
+            // Advancing past the grace deadline must be a no-op (nothing left to force)
+            await vi.advanceTimersByTimeAsync(5000);
+
+            expect(worker.terminate).toHaveBeenCalledTimes(1);
+        });
+
+        it('post-shutdown shutdown() returns the already-resolved promise', async () => {
+            let p = createPool<{ work: () => void }>('test.js', { limit: 1 });
+
+            let first = p.shutdown();
+
+            await first;
+
+            let second = p.shutdown();
+
+            expect(second).toBe(first);
+            await expect(second).resolves.toBeUndefined();
+        });
     });
 
 

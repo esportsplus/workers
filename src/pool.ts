@@ -34,6 +34,7 @@ class Pool {
     private priorityQueue: PriorityQueue | null = null;
     private queue: PendingStore;
     private retried = 0;
+    private shutdownPromise: Promise<void> | null = null;
     private shutdownTimeout: number;
     private tasks = new Map<UUID, Task>();
     private tasksPerWorker = new Map<WorkerLike, number>();
@@ -491,6 +492,10 @@ class Pool {
     }
 
     shutdown(): Promise<void> {
+        if (this.shutdownPromise) {
+            return this.shutdownPromise;
+        }
+
         for (let timer of this.heartbeatTimers.values()) {
             clearTimeout(timer);
         }
@@ -520,10 +525,10 @@ class Pool {
             this.cleanup = () => {};
             this.teardownWorkers();
 
-            return Promise.resolve();
+            return this.shutdownPromise = Promise.resolve();
         }
 
-        return new Promise((resolve) => {
+        return this.shutdownPromise = new Promise((resolve) => {
             let graceTimer: ReturnType<typeof setTimeout> | undefined,
                 settled = false;
 
