@@ -518,6 +518,50 @@ describe('collectTransferables', () => {
             expect(result).toContain(buf);
         });
 
+        it('dedups the same buffer twice at array level 1', () => {
+            let buf = new ArrayBuffer(8);
+            let result = collectTransferables([buf, buf]);
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(buf);
+        });
+
+        it('dedups the same buffer twice at object level 1', () => {
+            let buf = new ArrayBuffer(8);
+            let result = collectTransferables({ a: buf, b: buf });
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(buf);
+        });
+
+        it('dedups a shared container reached via two object keys', () => {
+            let buf = new ArrayBuffer(8);
+            let shared = { buf };
+
+            let result = collectTransferables({ a: shared, b: shared });
+
+            expect(result).toHaveLength(1);
+            expect(result).toContain(buf);
+        });
+
+        it('terminates on a self-cycle with no transferables', () => {
+            let o: Record<string, unknown> = {};
+
+            o.self = o;
+
+            let result = collectTransferables(o);
+
+            expect(result).toEqual([]);
+        });
+
+        it('collects a buffer once through a deeply nested chain', () => {
+            let buf = new ArrayBuffer(8);
+            let result = collectTransferables({ a: { b: { c: buf } } });
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(buf);
+        });
+
         it('finds every distinct transferable once inside a cycle', () => {
             let a = new ArrayBuffer(4),
                 b = new ArrayBuffer(8),

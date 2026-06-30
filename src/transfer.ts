@@ -25,6 +25,20 @@ function isAllPrimitive(arr: unknown[]): boolean {
     return true;
 }
 
+function isTransferable(v: object): boolean {
+    return v instanceof ArrayBuffer ||
+        v instanceof MessagePort ||
+        (typeof AudioData !== 'undefined' && v instanceof AudioData) ||
+        (typeof ImageBitmap !== 'undefined' && v instanceof ImageBitmap) ||
+        (typeof MediaSourceHandle !== 'undefined' && v instanceof MediaSourceHandle) ||
+        (typeof OffscreenCanvas !== 'undefined' && v instanceof OffscreenCanvas) ||
+        (typeof RTCDataChannel !== 'undefined' && v instanceof RTCDataChannel) ||
+        (typeof ReadableStream !== 'undefined' && v instanceof ReadableStream) ||
+        (typeof TransformStream !== 'undefined' && v instanceof TransformStream) ||
+        (typeof VideoFrame !== 'undefined' && v instanceof VideoFrame) ||
+        (typeof WritableStream !== 'undefined' && v instanceof WritableStream);
+}
+
 function collectTransferables(value: unknown): Transferable[] {
     // Fast-path: primitives (null, undefined, boolean, number, string, bigint, symbol)
     if (!value || typeof value !== 'object') {
@@ -45,54 +59,67 @@ function collectTransferables(value: unknown): Transferable[] {
         }
     }
 
+    if (isTransferable(value)) {
+        return [value as Transferable];
+    }
+
     let result: Transferable[] = [],
-        seen = new WeakSet<object>(),
+        seen: WeakSet<object> | null = null,
         stack = [value];
 
     while (stack.length > 0) {
-        let current = stack.pop();
+        let current = stack.pop() as object;
 
-        if (!current || typeof current !== 'object') {
+        if (seen !== null && seen.has(current)) {
             continue;
         }
 
-        if (seen.has(current)) {
-            continue;
-        }
-
-        seen.add(current);
-
-        if (current instanceof ArrayBuffer ||
-            current instanceof MessagePort ||
-            (typeof AudioData !== 'undefined' && current instanceof AudioData) ||
-            (typeof ImageBitmap !== 'undefined' && current instanceof ImageBitmap) ||
-            (typeof MediaSourceHandle !== 'undefined' && current instanceof MediaSourceHandle) ||
-            (typeof OffscreenCanvas !== 'undefined' && current instanceof OffscreenCanvas) ||
-            (typeof RTCDataChannel !== 'undefined' && current instanceof RTCDataChannel) ||
-            (typeof ReadableStream !== 'undefined' && current instanceof ReadableStream) ||
-            (typeof TransformStream !== 'undefined' && current instanceof TransformStream) ||
-            (typeof VideoFrame !== 'undefined' && current instanceof VideoFrame) ||
-            (typeof WritableStream !== 'undefined' && current instanceof WritableStream)) {
-            result.push(current as Transferable);
-            continue;
+        if (seen !== null) {
+            seen.add(current);
         }
 
         if (Array.isArray(current)) {
             for (let i = 0, n = current.length; i < n; i++) {
-                if (current[i] && typeof current[i] === 'object') {
-                    stack.push(current[i]);
+                let child = current[i];
+
+                if (child && typeof child === 'object') {
+                    if (isTransferable(child)) {
+                        result.push(child as Transferable);
+                    }
+                    else {
+                        if (seen === null) {
+                            seen = new WeakSet();
+                            seen.add(current);
+                        }
+
+                        stack.push(child);
+                    }
                 }
             }
         }
         else {
             for (let key in current) {
-                let value = (current as Record<string, unknown>)[key];
+                let child = (current as Record<string, unknown>)[key];
 
-                if (value && typeof value === 'object') {
-                    stack.push(value);
+                if (child && typeof child === 'object') {
+                    if (isTransferable(child as object)) {
+                        result.push(child as Transferable);
+                    }
+                    else {
+                        if (seen === null) {
+                            seen = new WeakSet();
+                            seen.add(current);
+                        }
+
+                        stack.push(child);
+                    }
                 }
             }
         }
+    }
+
+    if (result.length > 1) {
+        result = Array.from(new Set(result));
     }
 
     return result;
