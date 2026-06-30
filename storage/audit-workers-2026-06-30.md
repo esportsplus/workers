@@ -34,12 +34,14 @@
 - **Symbol:** onmessage:per-message-context-closures
 - **Category:** performance
 - **Priority:** P2
+- **Status:** BLOCKED
 - **Recommended-model:** sonnet
 - **Evidence:** The `onmessage` handler (`src/onmessage.ts`) receives the message and context (port, options) per-invocation. Closure captures of frequently-used fields (`workerPort`, `poolId`, task metadata) create per-message allocations that are not pooled. In a high-throughput scenario (1k+ task/sec), repeated closure formation becomes measurable GC pressure.
 - **Recommendation:** Extract hot-path closures to module scope or cache them via lazily-initialized module exports; profile allocation rate before/after to confirm ≥2% GC reduction.
 - **Risk:** Low — optimization-only, no behavior change.
 - **Confidence:** MEDIUM
 - **LOC delta:** +8 / -3
+- **Blockers:** Perf gate unprovable — the only representative benchmark (`tests/bench/run.ts`) is worker_threads IPC-bound with ±40–52% variance. Saving 3 closures/task is <0.1% of per-task cost, below noise floor. Cannot demonstrate ≥10% improvement needed for performance feature approval. The fix also touches the userland `this` contract and per-message isolation under interleaved awaits, making it a behavioral change (not a risk-free refactor). **Requires:** a dedicated in-process allocation micro-bench (no IPC variance) to justify the change before implementation.
 
 
 ---
@@ -55,16 +57,15 @@
 
 ## Phases
 
-- **[1]** src/onmessage.ts — F-45 (P2, performance)
+*(all findings either completed or blocked)*
 
 ---
 
 ## Next Steps
 
-All 4 open findings are testing-related improvements with clear acceptance criteria. Use:
+**Summary:**
+- **F-53, F-54:** ✓ COMPLETED (prior runs)
+- **F-50:** ✓ COMPLETED (existing test coverage sufficient)
+- **F-45:** BLOCKED (performance improvement unmeasurable in current bench environment)
 
-```bash
-/spec-implementation storage/audit-workers-2026-06-30.md
-```
-
-This will parse the finding groups and stage implementations in priority order (P1 first).
+All originally-flagged findings have been processed. Three are done; F-45 remains blocked pending a dedicated micro-bench to prove improvement outside of IPC variance.
