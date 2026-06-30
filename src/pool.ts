@@ -407,6 +407,18 @@ class Pool {
     }
 
     private teardownWorkers() {
+        for (let timer of this.heartbeatTimers.values()) {
+            clearTimeout(timer);
+        }
+
+        this.heartbeatTimers.clear();
+
+        for (let timer of this.idleTimers.values()) {
+            clearTimeout(timer);
+        }
+
+        this.idleTimers.clear();
+
         for (let i = 0, n = this.workers.length; i < n; i++) {
             this.workers[i].terminate();
         }

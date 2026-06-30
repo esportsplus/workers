@@ -340,6 +340,37 @@ describe('Pool', () => {
             await expect(p.shutdown()).resolves.toBeUndefined();
         });
 
+        it('reaps idle timer armed when a task completes during shutdown drain', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { idleTimeout: 3000, limit: 1 });
+
+            // idleTimeout disables pre-warm — task creates the worker on demand and goes pending
+            let promise = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            expect(p.stats().busy).toBe(1);
+
+            // Shutdown while the task is still pending — enters the drain window
+            let shutdownPromise = p.shutdown();
+
+            // Completion during the drain: markAvailable arms a FRESH idle timer, then cleanup tears down
+            simulateResult(worker, taskUuid, 42);
+
+            await expect(promise).resolves.toBe(42);
+            await expect(shutdownPromise).resolves.toBeUndefined();
+
+            // teardownWorkers reaped the freshly-armed idle timer — nothing left pending
+            expect(vi.getTimerCount()).toBe(0);
+
+            // Advancing past idleTimeout fires no stray replaceWorker/terminate on the torn-down pool
+            await vi.advanceTimersByTimeAsync(3000);
+
+            expect(worker.terminate).toHaveBeenCalledTimes(1);
+            expect(p.stats().workers).toBe(0);
+        });
+
         it('force-terminates hung workers after shutdownTimeout grace', async () => {
             vi.useFakeTimers();
 
