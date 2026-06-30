@@ -2806,8 +2806,32 @@ describe('Pool', () => {
             expect(() => createPool('test.js', { retries: 1.5 })).toThrow('retries');
         });
 
+        it('throws on negative heartbeatInterval', () => {
+            expect(() => createPool('test.js', { heartbeatInterval: -1 })).toThrow('heartbeatInterval');
+        });
+
+        it('throws on NaN heartbeatInterval', () => {
+            expect(() => createPool('test.js', { heartbeatInterval: NaN })).toThrow('heartbeatInterval');
+        });
+
+        it('throws on non-integer maxTasksPerWorker', () => {
+            expect(() => createPool('test.js', { maxTasksPerWorker: 2.5 })).toThrow(/integer/);
+        });
+
+        it('throws on negative maxTasksPerWorker', () => {
+            expect(() => createPool('test.js', { maxTasksPerWorker: -1 })).toThrow('maxTasksPerWorker');
+        });
+
         it('throws on negative shutdownTimeout', () => {
             expect(() => createPool('test.js', { shutdownTimeout: -1 })).toThrow('shutdownTimeout');
+        });
+
+        it('pins integer clause for retries', () => {
+            expect(() => createPool('test.js', { retries: 1.5 })).toThrow(/retries must be an integer >= 0/);
+        });
+
+        it('pins finite-number clause for idleTimeout', () => {
+            expect(() => createPool('test.js', { idleTimeout: -1 })).toThrow(/idleTimeout must be a finite number >= 0/);
         });
 
         it('accepts the disabled sentinels (zeros) and a fully-omitted options object', async () => {
