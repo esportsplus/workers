@@ -34,6 +34,7 @@ class Pool {
     private priorityQueue: PriorityQueue | null = null;
     private queue: PendingStore;
     private retried = 0;
+    private retryTimers = new Map<Task, ReturnType<typeof setTimeout>>();
     private shutdownPromise: Promise<void> | null = null;
     private shutdownTimeout: number;
     private tasks = new Map<UUID, Task>();
@@ -355,7 +356,9 @@ class Pool {
         task.uuid = uuid();
         task.queuedAt = performance.now();
 
-        setTimeout(() => {
+        this.retryTimers.set(task, setTimeout(() => {
+            this.retryTimers.delete(task);
+
             if (task.aborted) {
                 task.reject(new Error('@esportsplus/workers: task aborted'));
                 return;
@@ -379,7 +382,7 @@ class Pool {
             else {
                 this.queue.add(task);
             }
-        }, delay);
+        }, delay));
     }
 
     private startHeartbeatTimer(worker: WorkerLike) {
@@ -518,6 +521,13 @@ class Pool {
         }
 
         this.idleTimers.clear();
+
+        for (let [task, timer] of this.retryTimers) {
+            clearTimeout(timer);
+            task.reject(new Error('@esportsplus/workers: pool closing'));
+        }
+
+        this.retryTimers.clear();
 
         let task = this.queue.next();
 

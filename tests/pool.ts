@@ -1908,9 +1908,44 @@ describe('Pool', () => {
             let err = await result;
 
             expect(err).toBeInstanceOf(Error);
-            expect((err as Error).message).toContain('pool is shutting down');
+            expect((err as Error).message).toContain('pool closing');
 
             await shutdownPromise;
+        });
+
+        it('shutdown reaps the retry backoff timer and rejects promptly', async () => {
+            vi.useFakeTimers();
+
+            // Large retryDelay so the backoff timer is unmistakably still pending at shutdown
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 1, retryDelay: 30000 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            // First attempt fails — task enters retry backoff (lives only in the retry timer)
+            simulateError(worker, captureUuid(worker), { message: 'transient' });
+
+            let result = promise.catch((e: Error) => e);
+            let timersDuringBackoff = vi.getTimerCount();
+
+            // Shutdown mid-backoff must clear the retry timer and settle the stranded promise now
+            let shutdownPromise = p.shutdown();
+
+            await expect(shutdownPromise).resolves.toBeUndefined();
+
+            let err = await result;
+
+            expect(err).toBeInstanceOf(Error);
+            expect((err as Error).message).toContain('pool closing');
+
+            // The retry timer is reaped: one fewer pending timer than during backoff, and
+            // advancing past the full delay triggers no further dispatch
+            expect(vi.getTimerCount()).toBeLessThan(timersDuringBackoff);
+
+            let dispatchesBefore = worker.postMessage.mock.calls.length;
+
+            await vi.advanceTimersByTimeAsync(30000);
+
+            expect(worker.postMessage.mock.calls.length).toBe(dispatchesBefore);
         });
 
         it('does not retry on worker error (crash)', async () => {
