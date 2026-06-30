@@ -123,15 +123,28 @@ class PriorityQueue {
     }
 
     reprioritize(context: unknown): void {
-        let heap = this.heap;
+        let heap = this.heap,
+            n = heap.length,
+            previous = this.context,
+            scratch = new Array<number>(n);
 
         this.context = context;
 
-        for (let i = 0, n = heap.length; i < n; i++) {
-            heap[i].priority = this.priorityOf(heap[i].meta);
+        try {
+            for (let i = 0; i < n; i++) {
+                scratch[i] = this.priorityOf(heap[i].meta);
+            }
+        }
+        catch (error) {
+            this.context = previous;
+            throw error;
         }
 
-        for (let i = (heap.length >> 1) - 1; i >= 0; i--) {
+        for (let i = 0; i < n; i++) {
+            heap[i].priority = scratch[i];
+        }
+
+        for (let i = (n >> 1) - 1; i >= 0; i--) {
             this.siftDown(i);
         }
     }

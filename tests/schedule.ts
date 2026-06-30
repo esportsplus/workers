@@ -283,6 +283,34 @@ describe('PriorityQueue', () => {
         expect(drain(queue)).toEqual([30, 20, 10]);
     });
 
+    it('reprioritize that throws on a middle task leaves the heap and context uncorrupted', () => {
+        let queue = new PriorityQueue((m, ctx) => (m as number) - (ctx as number), 0);
+
+        // Insert order [10, 20, Inf, 5, 30] positions Infinity at heap array index 2 (a non-last leaf)
+        // so the rekey loop i=0(5), i=1(10), i=2(Inf->NaN throws) leaves i=3(20) and i=4(30) unvisited —
+        // proving a partial-iteration throw writes NO priority updates at all.
+        for (let n of [10, 20, Infinity, 5, 30]) {
+            queue.add(task(n));
+        }
+
+        expect(() => queue.reprioritize(Infinity)).toThrow('PriorityQueue: compare returned NaN');
+
+        // Assert heap state DIRECTLY after the throw — no intervening reprioritize — to prove the failed
+        // call left no partial writes. Context must be restored to 0 and all priorities unchanged, so
+        // drain must return the original ascending order under ctx=0.
+        expect(drain(queue)).toEqual([5, 10, 20, 30, Infinity]);
+
+        // Separate assertion: a subsequent valid reprioritize still works correctly.
+        let queue2 = new PriorityQueue((m, ctx) => (m as number) - (ctx as number), 0);
+
+        for (let n of [10, 20, 30]) {
+            queue2.add(task(n));
+        }
+
+        queue2.reprioritize(0);
+        expect(drain(queue2)).toEqual([10, 20, 30]);
+    });
+
     it('dequeues every element when keys are equal', () => {
         let queue = new PriorityQueue((m) => m as number, undefined);
 
