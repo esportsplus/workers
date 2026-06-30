@@ -140,6 +140,12 @@ class Pool {
 
             // Event dispatch from worker
             if (data.event) {
+                // 'release' is reserved for the internal main->worker release listener; a worker
+                // event named 'release' must not fire it and tear down the retained session.
+                if (data.event === 'release') {
+                    return;
+                }
+
                 task.promise.dispatch(data.event as string, data.data);
                 return;
             }

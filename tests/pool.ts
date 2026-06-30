@@ -752,6 +752,51 @@ describe('Pool', () => {
             await expect(promise).resolves.toBe('released');
             await p.shutdown();
         });
+
+        it('worker event named "release" does not trigger the internal release listener', async () => {
+            let p = createPool<{ hold: () => string }>('test.js', { limit: 1 });
+
+            let promise = p().hold();
+            let events: unknown[] = [];
+
+            promise.on('progress' as never, (data: unknown) => {
+                events.push(data);
+            });
+
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            // Retain the task: registers the pool's internal main->worker 'release' listener
+            worker._emit('message', { retained: true, uuid: taskUuid });
+
+            expect(p.stats().busy).toBe(1);
+
+            // Worker posts a colliding event named 'release' — must be dropped, not forwarded
+            worker._emit('message', { event: 'release', uuid: taskUuid });
+
+            // The internal release listener never fired: no { release: true } posted back to the worker
+            let releaseCalls = worker.postMessage.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).release === true
+            );
+
+            expect(releaseCalls.length).toBe(0);
+
+            // Session stays bound — task neither completed nor unbound
+            expect(p.stats().busy).toBe(1);
+            expect(p.stats().completed).toBe(0);
+
+            // A normal user event is still delivered
+            worker._emit('message', { data: { percent: 50 }, event: 'progress', uuid: taskUuid });
+
+            expect(events).toEqual([{ percent: 50 }]);
+
+            // Release legitimately and complete to let shutdown settle
+            promise.dispatch('release');
+            simulateResult(worker, taskUuid, 'released');
+
+            await expect(promise).resolves.toBe('released');
+            await p.shutdown();
+        });
     });
 
 
