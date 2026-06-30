@@ -1,0 +1,892 @@
+{
+ "version": 11,
+ "project": "workers",
+ "created_commit": "2e371bc4dcc02d6c792da96c65b1fbe6f24fed32",
+ "scope": "src",
+ "run_counter": 7,
+ "next_finding_id": 55,
+ "scan_config": {
+  "roots": [
+   "src"
+  ],
+  "exclude": [
+   ".git",
+   ".claude",
+   "node_modules",
+   "dist",
+   "build",
+   "out",
+   "coverage",
+   "vendor",
+   ".next",
+   "target"
+  ]
+ },
+ "manifest": {
+  "files": {
+   "src/index.ts": {
+    "hash": "sha256:543b104c692f7c0e",
+    "symbols": [
+     "onmessage",
+     "pool",
+     "priority"
+    ],
+    "first_seen_run": 1
+   },
+   "src/onmessage.ts": {
+    "hash": "sha256:4deb830830692f19",
+    "symbols": [],
+    "first_seen_run": 1
+   },
+   "src/platform/browser.ts": {
+    "hash": "sha256:3f2805bb811e6b64",
+    "symbols": [
+     "cores",
+     "spawn",
+     "workerPort"
+    ],
+    "first_seen_run": 2
+   },
+   "src/platform/node.ts": {
+    "hash": "sha256:61466d74c453a0b0",
+    "symbols": [
+     "cores",
+     "spawn",
+     "workerPort"
+    ],
+    "first_seen_run": 2
+   },
+   "src/pool.ts": {
+    "hash": "sha256:177607a23408d344",
+    "symbols": [],
+    "first_seen_run": 1
+   },
+   "src/schedule.ts": {
+    "hash": "sha256:ff98a10e92c5e00e",
+    "symbols": [
+     "priority",
+     "PriorityQueue"
+    ],
+    "first_seen_run": 1
+   },
+   "src/task.ts": {
+    "hash": "sha256:a6c15cdc29cbe716",
+    "symbols": [
+     "TaskPromise"
+    ],
+    "first_seen_run": 1
+   },
+   "src/transfer.ts": {
+    "hash": "sha256:cb5e1f2bb24e473d",
+    "symbols": [
+     "collectTransferables"
+    ],
+    "first_seen_run": 1
+   },
+   "src/types.ts": {
+    "hash": "sha256:58b0b5ac483c1ff9",
+    "symbols": [],
+    "first_seen_run": 1
+   }
+  },
+  "last_updated_run": 7
+ },
+ "files": {
+  "src/index.ts": {
+   "hash": "sha256:543b104c692f7c0e",
+   "evaluated": [
+    "correctness",
+    "security",
+    "performance",
+    "architecture",
+    "testing"
+   ],
+   "last_run": 4
+  },
+  "src/onmessage.ts": {
+   "hash": "sha256:4deb830830692f19",
+   "evaluated": [
+    "correctness",
+    "security",
+    "performance",
+    "architecture",
+    "testing"
+   ],
+   "last_run": 7
+  },
+  "src/pool.ts": {
+   "hash": "sha256:177607a23408d344",
+   "evaluated": [
+    "correctness",
+    "security",
+    "performance",
+    "architecture",
+    "testing"
+   ],
+   "last_run": 7
+  },
+  "src/schedule.ts": {
+   "hash": "sha256:ff98a10e92c5e00e",
+   "evaluated": [
+    "correctness",
+    "security",
+    "performance",
+    "architecture",
+    "testing"
+   ],
+   "last_run": 3
+  },
+  "src/task.ts": {
+   "hash": "sha256:a6c15cdc29cbe716",
+   "evaluated": [
+    "correctness",
+    "security",
+    "performance",
+    "architecture",
+    "testing"
+   ],
+   "last_run": 1
+  },
+  "src/transfer.ts": {
+   "hash": "sha256:cb5e1f2bb24e473d",
+   "evaluated": [
+    "correctness",
+    "security",
+    "performance",
+    "architecture",
+    "testing"
+   ],
+   "last_run": 3
+  },
+  "src/types.ts": {
+   "hash": "sha256:58b0b5ac483c1ff9",
+   "evaluated": [
+    "correctness",
+    "security",
+    "performance",
+    "architecture",
+    "testing"
+   ],
+   "last_run": 6
+  },
+  "__project__": {
+   "hash": "__project__",
+   "evaluated": [
+    "architecture"
+   ],
+   "last_run": 6
+  },
+  "src/platform/browser.ts": {
+   "hash": "sha256:3f2805bb811e6b64",
+   "evaluated": [
+    "correctness",
+    "security",
+    "performance",
+    "architecture",
+    "testing"
+   ],
+   "last_run": 4
+  },
+  "src/platform/node.ts": {
+   "hash": "sha256:61466d74c453a0b0",
+   "evaluated": [
+    "correctness",
+    "security",
+    "performance",
+    "architecture",
+    "testing"
+   ],
+   "last_run": 4
+  }
+ },
+ "findings": {
+  "F-1": {
+   "key": "src/transfer.ts\u0000collectTransferables\u0000correctness",
+   "file": "src/transfer.ts",
+   "symbol": "collectTransferables",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P0",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-2": {
+   "key": "src/pool.ts\u0000shutdown\u0000correctness",
+   "file": "src/pool.ts",
+   "symbol": "shutdown",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P0",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-3": {
+   "key": "src/pool.ts\u0000createWorker:retained\u0000correctness",
+   "file": "src/pool.ts",
+   "symbol": "createWorker:retained",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-4": {
+   "key": "src/pool.ts\u0000constructor:limit\u0000correctness",
+   "file": "src/pool.ts",
+   "symbol": "constructor:limit",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-5": {
+   "key": "src/schedule.ts\u0000add\u0000correctness",
+   "file": "src/schedule.ts",
+   "symbol": "add",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-6": {
+   "key": "src/transfer.ts\u0000collectTransferables\u0000optimize",
+   "file": "src/transfer.ts",
+   "symbol": "collectTransferables",
+   "category": "optimize",
+   "canonical": "performance",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-7": {
+   "key": "src/transfer.ts\u0000collectTransferables:alloc\u0000optimize",
+   "file": "src/transfer.ts",
+   "symbol": "collectTransferables:alloc",
+   "category": "optimize",
+   "canonical": "performance",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-8": {
+   "key": "src/transfer.ts\u0000collectTransferables:typeof-chain\u0000optimize",
+   "file": "src/transfer.ts",
+   "symbol": "collectTransferables:typeof-chain",
+   "category": "optimize",
+   "canonical": "performance",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-9": {
+   "key": "src/types.ts\u0000Infer\u0000loc",
+   "file": "src/types.ts",
+   "symbol": "Infer",
+   "category": "loc",
+   "canonical": "architecture",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-10": {
+   "key": "src/onmessage.ts\u0000flatten\u0000weak-types",
+   "file": "src/onmessage.ts",
+   "symbol": "flatten",
+   "category": "weak-types",
+   "canonical": "architecture",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-11": {
+   "key": "src/pool.ts\u0000worker-replacement-teardown\u0000dedup",
+   "file": "src/pool.ts",
+   "symbol": "worker-replacement-teardown",
+   "category": "dedup",
+   "canonical": "architecture",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-12": {
+   "key": "src/pool.ts\u0000shutdown-teardown\u0000dedup",
+   "file": "src/pool.ts",
+   "symbol": "shutdown-teardown",
+   "category": "dedup",
+   "canonical": "architecture",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-13": {
+   "key": "src/pool.ts\u0000require-esm\u0000modernize",
+   "file": "src/pool.ts",
+   "symbol": "require-esm",
+   "category": "modernize",
+   "canonical": "architecture",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-14": {
+   "key": "src/pool.ts\u0000section-comments\u0000slop",
+   "file": "src/pool.ts",
+   "symbol": "section-comments",
+   "category": "slop",
+   "canonical": "architecture",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-15": {
+   "key": "src/index.ts\u0000barrel\u0000coverage",
+   "file": "src/index.ts",
+   "symbol": "barrel",
+   "category": "coverage",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 4
+  },
+  "F-16": {
+   "key": "src/schedule.ts\u0000PriorityQueue\u0000test-quality",
+   "file": "src/schedule.ts",
+   "symbol": "PriorityQueue",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-17": {
+   "key": "src/transfer.ts\u0000collectTransferables\u0000test-quality",
+   "file": "src/transfer.ts",
+   "symbol": "collectTransferables",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-18": {
+   "key": "src/pool.ts\u0000context\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "context",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-19": {
+   "key": "src/pool.ts\u0000stats\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "stats",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-20": {
+   "key": "src/schedule.ts\u0000priority\u0000test-quality",
+   "file": "src/schedule.ts",
+   "symbol": "priority",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 1,
+   "last_run": 2
+  },
+  "F-21": {
+   "key": "src/onmessage.ts\u0000release-terminal\u0000correctness",
+   "file": "src/onmessage.ts",
+   "symbol": "release-terminal",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 2,
+   "last_run": 3
+  },
+  "F-22": {
+   "key": "src/schedule.ts\u0000reprioritize\u0000correctness",
+   "file": "src/schedule.ts",
+   "symbol": "reprioritize",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 2,
+   "last_run": 3
+  },
+  "F-23": {
+   "key": "src/transfer.ts\u0000collectTransferables:seen-defer\u0000optimize",
+   "file": "src/transfer.ts",
+   "symbol": "collectTransferables:seen-defer",
+   "category": "optimize",
+   "canonical": "performance",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 2,
+   "last_run": 3
+  },
+  "F-24": {
+   "key": "src/platform/node.ts\u0000workerPort\u0000coverage",
+   "file": "src/platform/node.ts",
+   "symbol": "workerPort",
+   "category": "coverage",
+   "canonical": "testing",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 2,
+   "last_run": 4
+  },
+  "F-25": {
+   "key": "src/platform/browser.ts\u0000module\u0000coverage",
+   "file": "src/platform/browser.ts",
+   "symbol": "module",
+   "category": "coverage",
+   "canonical": "testing",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 2,
+   "last_run": 4
+  },
+  "F-26": {
+   "key": "src/pool.ts\u0000shutdown:reentry\u0000correctness",
+   "file": "src/pool.ts",
+   "symbol": "shutdown:reentry",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 2,
+   "last_run": 3
+  },
+  "F-27": {
+   "key": "src/onmessage.ts\u0000heartbeatInterval\u0000security",
+   "file": "src/onmessage.ts",
+   "symbol": "heartbeatInterval",
+   "category": "security",
+   "canonical": "security",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 2,
+   "last_run": 3
+  },
+  "F-28": {
+   "key": "src/pool.ts\u0000createWorker.onerror\u0000correctness",
+   "file": "src/pool.ts",
+   "symbol": "createWorker.onerror",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P0",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-29": {
+   "key": "src/pool.ts\u0000retry\u0000correctness",
+   "file": "src/pool.ts",
+   "symbol": "retry",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-30": {
+   "key": "src/pool.ts\u0000teardownWorkers\u0000correctness",
+   "file": "src/pool.ts",
+   "symbol": "teardownWorkers",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-31": {
+   "key": "src/pool.ts\u0000createWorker.onmessage:event-branch\u0000security",
+   "file": "src/pool.ts",
+   "symbol": "createWorker.onmessage:event-branch",
+   "category": "security",
+   "canonical": "security",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-32": {
+   "key": "src/pool.ts\u0000createWorker.onmessage:retained-branch\u0000security",
+   "file": "src/pool.ts",
+   "symbol": "createWorker.onmessage:retained-branch",
+   "category": "security",
+   "canonical": "security",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-33": {
+   "key": "src/onmessage.ts\u0000heartbeats.set\u0000security",
+   "file": "src/onmessage.ts",
+   "symbol": "heartbeats.set",
+   "category": "security",
+   "canonical": "security",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-34": {
+   "key": "src/pool.ts\u0000priorityContext\u0000loc",
+   "file": "src/pool.ts",
+   "symbol": "priorityContext",
+   "category": "loc",
+   "canonical": "architecture",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-35": {
+   "key": "src/pool.ts\u0000compare\u0000loc",
+   "file": "src/pool.ts",
+   "symbol": "compare",
+   "category": "loc",
+   "canonical": "architecture",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-36": {
+   "key": "src/pool.ts\u0000test:abort-timedOut\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "test:abort-timedOut",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-37": {
+   "key": "src/pool.ts\u0000test:maxTasksPerWorker-boundary\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "test:maxTasksPerWorker-boundary",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-38": {
+   "key": "src/pool.ts\u0000test:idle-recreate\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "test:idle-recreate",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-39": {
+   "key": "src/pool.ts\u0000test:retry-jitter\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "test:retry-jitter",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 3,
+   "last_run": 5
+  },
+  "F-40": {
+   "key": "src/pool.ts\u0000createWorker.onmessage:release-error-retry\u0000correctness",
+   "file": "src/pool.ts",
+   "symbol": "createWorker.onmessage:release-error-retry",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P0",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-41": {
+   "key": "src/pool.ts\u0000shutdown:retryTimers-after-sweep-leak\u0000correctness",
+   "file": "src/pool.ts",
+   "symbol": "shutdown:retryTimers-after-sweep-leak",
+   "category": "correctness",
+   "canonical": "correctness",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-42": {
+   "key": "src/pool.ts\u0000constructor:unvalidated-numeric-options\u0000security",
+   "file": "src/pool.ts",
+   "symbol": "constructor:unvalidated-numeric-options",
+   "category": "security",
+   "canonical": "security",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-43": {
+   "key": "src/pool.ts\u0000createWorker.onmessage:completion-tasksPerWorker\u0000optimize",
+   "file": "src/pool.ts",
+   "symbol": "createWorker.onmessage:completion-tasksPerWorker",
+   "category": "optimize",
+   "canonical": "performance",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-44": {
+   "key": "src/pool.ts\u0000proxy-factory:per-call-handler-alloc\u0000optimize",
+   "file": "src/pool.ts",
+   "symbol": "proxy-factory:per-call-handler-alloc",
+   "category": "optimize",
+   "canonical": "performance",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-45": {
+   "key": "src/onmessage.ts\u0000onmessage:per-message-context-closures\u0000optimize",
+   "file": "src/onmessage.ts",
+   "symbol": "onmessage:per-message-context-closures",
+   "category": "optimize",
+   "canonical": "performance",
+   "priority": "P2",
+   "status": "open",
+   "first_run": 5,
+   "last_run": 5
+  },
+  "F-46": {
+   "key": "src/pool.ts\u0000shutdown:redundant-timer-preclear\u0000dedup",
+   "file": "src/pool.ts",
+   "symbol": "shutdown:redundant-timer-preclear",
+   "category": "dedup",
+   "canonical": "architecture",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-47": {
+   "key": "src/pool.ts\u0000Task.worker:dead-write\u0000loc",
+   "file": "src/pool.ts",
+   "symbol": "Task.worker:dead-write",
+   "category": "loc",
+   "canonical": "architecture",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-48": {
+   "key": "src/pool.ts\u0000test:onerror-message-fallback\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "test:onerror-message-fallback",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-49": {
+   "key": "src/pool.ts\u0000test:dispatch-timeout-stale-guard\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "test:dispatch-timeout-stale-guard",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-50": {
+   "key": "src/onmessage.ts\u0000test:heartbeat-arm-interval-guard\u0000test-quality",
+   "file": "src/onmessage.ts",
+   "symbol": "test:heartbeat-arm-interval-guard",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 7
+  },
+  "F-51": {
+   "key": "src/pool.ts\u0000test:retained-release-error\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "test:retained-release-error",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-52": {
+   "key": "src/pool.ts\u0000test:retry-after-shutdown-sweep\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "test:retry-after-shutdown-sweep",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P2",
+   "status": "fixed",
+   "first_run": 5,
+   "last_run": 6
+  },
+  "F-53": {
+   "key": "src/pool.ts\u0000Pool.constructor:schedule-branch\u0000coverage",
+   "file": "src/pool.ts",
+   "symbol": "Pool.constructor:schedule-branch",
+   "category": "coverage",
+   "canonical": "testing",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 6,
+   "last_run": 7
+  },
+  "F-54": {
+   "key": "src/pool.ts\u0000numeric:per-field-validation\u0000test-quality",
+   "file": "src/pool.ts",
+   "symbol": "numeric:per-field-validation",
+   "category": "test-quality",
+   "canonical": "testing",
+   "priority": "P1",
+   "status": "fixed",
+   "first_run": 6,
+   "last_run": 7
+  }
+ },
+ "runs": [
+  {
+   "run": 1,
+   "date": "2026-06-29",
+   "commit": "2e371bc4dcc02d6c792da96c65b1fbe6f24fed32",
+   "scope": "src full audit",
+   "new_findings": 20,
+   "closed_findings": 0,
+   "reopened_findings": 0,
+   "files_covered": 7,
+   "files_total": 7,
+   "status": "DONE"
+  },
+  {
+   "run": 2,
+   "date": "2026-06-29",
+   "commit": "2bc1ff3a2f4926104cc26c74a2912ef65a206426",
+   "scope": "src full audit (re-audit post-impl)",
+   "new_findings": 7,
+   "closed_findings": 19,
+   "reopened_findings": 0,
+   "files_covered": 9,
+   "files_total": 9,
+   "status": "DONE"
+  },
+  {
+   "run": 3,
+   "date": "2026-06-29",
+   "commit": "6604e86",
+   "scope": "src",
+   "new_findings": 12,
+   "closed_findings": 5,
+   "reopened_findings": 0,
+   "files_covered": 9,
+   "files_total": 9,
+   "status": "DONE"
+  },
+  {
+   "run": 4,
+   "date": "2026-06-29",
+   "commit": "6604e86",
+   "scope": "src",
+   "new_findings": 0,
+   "closed_findings": 3,
+   "reopened_findings": 0,
+   "files_covered": 9,
+   "files_total": 9,
+   "status": "DONE"
+  },
+  {
+   "run": 5,
+   "date": "2026-06-29",
+   "commit": "293ba4fc90807e185669d7da57850f10de509e17",
+   "scope": "src",
+   "new_findings": 13,
+   "closed_findings": 12,
+   "reopened_findings": 0,
+   "files_covered": 9,
+   "files_total": 9,
+   "status": "DONE"
+  },
+  {
+   "run": 6,
+   "date": "2026-06-30",
+   "commit": "753bd76",
+   "scope": "src/",
+   "new_findings": 2,
+   "closed_findings": 11,
+   "reopened_findings": 0,
+   "files_covered": 9,
+   "files_total": 9,
+   "status": "DONE"
+  },
+  {
+   "run": 7,
+   "date": "2026-06-30",
+   "commit": "77f3059629d1bfece30e1bb5bdab26861733243b",
+   "scope": "src",
+   "new_findings": 0,
+   "closed_findings": 3,
+   "reopened_findings": 0,
+   "files_covered": 9,
+   "files_total": 9,
+   "status": "DONE"
+  }
+ ],
+ "convergence": {
+  "status": "DONE",
+  "coverage_pct": 100,
+  "files_covered": 9,
+  "files_total": 9,
+  "reason": "full coverage (9/9). Findings, if any, are backlog.",
+  "uncovered_sample": []
+ }
+}
