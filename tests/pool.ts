@@ -276,6 +276,27 @@ describe('Pool', () => {
 
             await p.shutdown();
         });
+
+        it('aborting a running task does not count as a timeout', async () => {
+            let p = createPool<{ work: () => void }>('test.js', { limit: 1 });
+            let controller = new AbortController();
+
+            let promise = p({ signal: controller.signal }).work();
+            let worker = mockWorkers[0];
+
+            expect(p.stats().busy).toBe(1);
+
+            controller.abort();
+
+            await expect(promise).rejects.toThrow('task aborted');
+
+            // recycleWorker(worker, task, false) — countTimeout=false, so timedOut must stay 0.
+            // A mutation flipping it to true (or dropping the flag) would make this 1.
+            expect(p.stats().timedOut).toBe(0);
+            expect(worker.terminate).toHaveBeenCalled();
+
+            await p.shutdown();
+        });
     });
 
 
@@ -697,6 +718,39 @@ describe('Pool', () => {
             expect(worker.terminate).toHaveBeenCalled();
             await p.shutdown();
         });
+
+        it('recreates a worker after a full idle teardown (1 -> 0 -> 1)', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { idleTimeout: 3000, limit: 1 });
+
+            // First task creates the worker on demand
+            let p1 = p().work();
+            let worker1 = mockWorkers[0];
+
+            simulateResult(worker1, captureUuid(worker1), 1);
+
+            await expect(p1).resolves.toBe(1);
+
+            // Idle timer fires — pool tears all workers down (1 -> 0)
+            await vi.advanceTimersByTimeAsync(3000);
+
+            expect(worker1.terminate).toHaveBeenCalled();
+            expect(p.stats().workers).toBe(0);
+
+            // New schedule with available empty + workers.length(0) < limit(1): re-grow (0 -> 1)
+            let p2 = p().work();
+
+            expect(p.stats().workers).toBe(1);
+            expect(mockWorkers.length).toBe(2);
+
+            let worker2 = mockWorkers[1];
+
+            simulateResult(worker2, captureUuid(worker2), 2);
+
+            await expect(p2).resolves.toBe(2);
+            await p.shutdown();
+        });
     });
 
 
@@ -1003,6 +1057,37 @@ describe('Pool', () => {
 
             // After 2 completions (1 error + 1 success), worker should be recycled
             expect(worker.terminate).toHaveBeenCalled();
+            expect(mockWorkers.length).toBe(2);
+
+            await p.shutdown();
+        });
+
+        it('recycles exactly on the >= boundary, not before', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, maxTasksPerWorker: 2 });
+            let worker = mockWorkers[0];
+
+            // Task 1 — count becomes 1, below threshold: no recycle yet
+            let p1 = p().work();
+
+            simulateResult(worker, captureUuid(worker), 1);
+
+            await expect(p1).resolves.toBe(1);
+
+            // Lower edge: count(1) >= max(2) is false — worker must survive, no premature recycle
+            expect(worker.terminate).not.toHaveBeenCalled();
+            expect(p.stats().workers).toBe(1);
+            expect(mockWorkers.length).toBe(1);
+
+            // Task 2 — count becomes 2, count(2) >= max(2) is true: recycle
+            let p2 = p().work();
+
+            simulateResult(worker, captureUuid(worker), 2);
+
+            await expect(p2).resolves.toBe(2);
+
+            // Boundary hit: original terminated, fresh worker spawned
+            expect(worker.terminate).toHaveBeenCalled();
+            expect(p.stats().workers).toBe(1);
             expect(mockWorkers.length).toBe(2);
 
             await p.shutdown();
@@ -1924,6 +2009,70 @@ describe('Pool', () => {
 
             // Now dispatched
             expect(worker.postMessage.mock.calls.length).toBe(3);
+
+            simulateResult(worker, captureUuid(worker), 42);
+
+            await expect(promise).resolves.toBe(42);
+
+            vi.spyOn(Math, 'random').mockRestore();
+
+            await p.shutdown();
+        });
+
+        it('applies the random jitter term to the retry delay', async () => {
+            vi.useFakeTimers();
+
+            // Non-zero jitter: delay = base(1000) + 0.5*retryDelay(1000) = 1500ms
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 1, retryDelay: 1000 });
+
+            vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            // Just before 1500ms — jitter term keeps it from firing at the base 1000ms.
+            // If the `+ Math.random()*retryDelay` term were dropped, dispatch would already have happened.
+            await vi.advanceTimersByTimeAsync(1499);
+
+            expect(worker.postMessage.mock.calls.length).toBe(1);
+
+            await vi.advanceTimersByTimeAsync(1);
+
+            expect(worker.postMessage.mock.calls.length).toBe(2);
+
+            simulateResult(worker, captureUuid(worker), 42);
+
+            await expect(promise).resolves.toBe(42);
+
+            vi.spyOn(Math, 'random').mockRestore();
+
+            await p.shutdown();
+        });
+
+        it('clamps base + jitter to maxRetryDelay', async () => {
+            vi.useFakeTimers();
+
+            // base(1000) + 0.5*1000 = 1500 would exceed maxRetryDelay(1200) -> clamped to 1200
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, maxRetryDelay: 1200, retries: 1, retryDelay: 1000 });
+
+            vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            simulateError(worker, captureUuid(worker), { message: 'fail' });
+
+            // Not yet at the clamp ceiling
+            await vi.advanceTimersByTimeAsync(1199);
+
+            expect(worker.postMessage.mock.calls.length).toBe(1);
+
+            // Fires exactly at maxRetryDelay — a broken clamp would fire later (at 1500) or never
+            await vi.advanceTimersByTimeAsync(1);
+
+            expect(worker.postMessage.mock.calls.length).toBe(2);
 
             simulateResult(worker, captureUuid(worker), 42);
 
