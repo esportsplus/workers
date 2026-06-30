@@ -98,7 +98,6 @@ type Task = {
     timeoutId?: ReturnType<typeof setTimeout>;
     uuid: UUID;
     values: unknown[];
-    worker?: WorkerLike;
 };
 
 type WorkerContext<E extends Record<string, unknown> = Record<string, unknown>> = {

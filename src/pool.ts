@@ -167,7 +167,6 @@ class Pool {
                 }
 
                 task.retained = true;
-                task.worker = worker;
                 task.promise.on('release', () => {
                     task.releasing = true;
                     worker.postMessage({ release: true, uuid: data.uuid });
@@ -537,18 +536,6 @@ class Pool {
         if (this.shutdownPromise) {
             return this.shutdownPromise;
         }
-
-        for (let timer of this.heartbeatTimers.values()) {
-            clearTimeout(timer);
-        }
-
-        this.heartbeatTimers.clear();
-
-        for (let timer of this.idleTimers.values()) {
-            clearTimeout(timer);
-        }
-
-        this.idleTimers.clear();
 
         for (let [task, timer] of this.retryTimers) {
             clearTimeout(timer);
