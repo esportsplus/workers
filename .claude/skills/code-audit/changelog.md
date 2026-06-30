@@ -1,8 +1,8 @@
 ---
 project: "@esportsplus/workers"
-last_updated: 2026-06-29
+last_updated: 2026-06-30
 counts:
-  completed: 48
+  completed: 50
   rejected: 7
   skipped: 0
   reverted: 3
@@ -92,6 +92,14 @@ Testing / Coverage
 | F-50 onmessage heartbeat-arm guard — heartbeat:true with interval omitted/0 must not arm (kills `&&`→`||` mutation) |
 | F-51 retained release-error single-settle — regression guard for F-40 (retries=0 single reject + retries=1 no re-dispatch) |
 | F-52 no leaked retry timer after shutdown — regression guard for F-41 (error in grace window → vi.getTimerCount()===0) |
+
+### Run 5 — spec-implementation of audit-workers-2026-06-30 (audit run_index 6) (2026-06-30)
+
+Testing / Coverage
+| F-53 priority-scheduler integration coverage (P1) — the pool's priority path (constructor `new PriorityQueue` branch + `context()` reprioritize→processQueue leg) was never exercised through `createPool`; only the FIFO no-op leg was tested. Added `describe('priority scheduling')` (tests/pool.ts:1509): (1) comparator-order dispatch — queues B(prio 5) then C(prio 1), asserts C dispatches first (anti-FIFO guard); (2) `context({invert})` reprioritize — asserts the queue re-ranks before the next dispatch (would fail if reprioritize were a no-op, since PriorityQueue caches keys at add-time). Distinct from F-16 (isolated heap unit test) and F-18 (FIFO no-op leg). |
+| F-54 numeric() per-field validation assertion-strength (P1) — `describe('option validation')` asserted only field-name substrings, so a `maxTasksPerWorker`/`heartbeatInterval` rejection was entirely untested and an integer↔finite flag inversion stayed green. Added: `maxTasksPerWorker` 2.5→`/integer/` + -1 throws; `heartbeatInterval` -1/NaN throw; clause-pinning `retries:1.5`→`/retries must be an integer >= 0/` and `idleTimeout:-1`→`/idleTimeout must be a finite number >= 0/`. Hardens F-42's tests (F-42 was the implementation). |
+
+Suite 259 → 267 passing (+8 cases across the two findings). No src/ changes (test-only). Registry: F-53/F-54 closed; 11 prior pool.ts findings (F-40..F-52) auto-closed as confirmed-fixed during audit run 6.
 
 ## Blocked / Deferred
 
