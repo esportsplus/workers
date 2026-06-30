@@ -27,6 +27,7 @@ Both files were re-audited because their hashes changed since run 3 (HEAD = `fix
 - Symbol: default export (onmessage handler) — WorkerContext construction
 - Category: optimize
 - Priority: P2
+- Status: BLOCKED — cannot clear the perf gate. The only representative benchmark (tests/bench/run.ts dispatch path) is worker_threads IPC-bound with ±40–52% run-to-run variance; saving 3 closures/task is <0.1% of per-task cost, far below the noise floor, so a ≥10% improvement is unprovable. Unlike F-43/F-44 (trivially behavior-neutral gate/hoist), this restructure materially touches the userland `this` contract and per-message isolation under interleaved awaits, so it cannot be landed as a risk-free refactor either. Deferred as backlog: needs a dedicated in-process allocation micro-bench (no IPC) to justify the change before implementing.
 - Evidence: Every inbound task message allocates a `context` object holding three freshly-created closures (`dispatch`/`release`/`retain`, lines 121-141) plus `released`/`retained` locals — even for the dominant result-only action that never calls them: 4 allocations/task of pure GC pressure. Benchmark-gated for the ≥10% bar; payload/action-cost-dependent.
 - Recommendation: Reduce from 4 allocations to 1 — move `released`/`retained` onto a tiny per-task record and define `dispatch`/`release`/`retain` ONCE at module scope, reading state from `this`. **Correctness constraint:** one record per MESSAGE (two interleaved awaited tasks each need their own flags) — preserve per-task isolation.
 - Risk: Medium — the context is handed to userland action code via `this`; the closures→shared-functions change must keep observable behavior identical (especially the no-op-when-`released` guards) under interleaved awaits.
@@ -34,26 +35,11 @@ Both files were re-audited because their hashes changed since run 3 (HEAD = `fix
 - LOC delta: +20 / -0
 - Recommended-model: opus
 
-#### F-50: onmessage heartbeat-arm with flag present but missing/zero interval is untested
-- File: src/onmessage.ts:101
-- Symbol: default export (heartbeat interval arming)
-- Category: test-quality
-- Priority: P2
-- Evidence: Arming is gated `if (data.heartbeat && data.heartbeatInterval)`. Every hb test passes a truthy interval; the "no config" test sends neither flag. The conforming sub-branch `{heartbeat:true}` with interval omitted/0 (which must NOT arm) is never isolated; a `&&`→`||` mutation survives the suite. DISTINCT from the previously-rejected T3 (which required a non-conforming worker) — this is a conforming arm frame.
-- Recommendation: Add two cases — `{heartbeat:true}` with no `heartbeatInterval`, and `{heartbeat:true, heartbeatInterval:0}` — each asserting zero `heartbeat:true` postMessages after advancing the clock.
-- Risk: A mutation flipping `&&`→`||` arms `setInterval` with `Math.max(50, NaN→50)` and leaks an unbounded heartbeat interval on a malformed arm frame, undetected.
-- Confidence: HIGH
-- LOC delta: +16 / -0
-- Recommended-model: sonnet
+## Implementation Status (spec-implementation run, 2026-06-29)
 
-### src/pool.ts
-
-## Convergence Status
-
-- **Status:** DONE
-- **Coverage:** 9/9 files (100%)
-- **Open findings:** P0=1 · P1=1 · P2=11 (fixed=39, invalid=0)
-- **Reason:** full coverage (9/9). Findings, if any, are backlog.
+- **COMPLETED (12):** F-40, F-41, F-42, F-43, F-44, F-46, F-47, F-48, F-49, F-50, F-51, F-52 — committed; spec blocks consumed.
+- **BLOCKED (1):** F-45 — perf gate unprovable on the IPC-bound bench + userland-contract risk (see block above). Remains open backlog.
+- Test suite: 243 → 259 passing. Bench: no regression (within ±40–52% IPC noise).
 
 ## Next Steps
 
