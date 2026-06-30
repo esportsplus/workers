@@ -88,6 +88,7 @@ type Task = {
     promise: TaskPromise<unknown, Record<string, unknown>>;
     queuedAt: number;
     reject: (reason: unknown) => void;
+    releasing?: boolean;
     resolve: (value: unknown) => void;
     retained: boolean;
     retryDelay: number;

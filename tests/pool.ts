@@ -2658,4 +2658,121 @@ describe('Pool', () => {
             await p.shutdown();
         });
     });
+
+
+    describe('release round-trip errors', () => {
+        it('F-51a retries=0: error reply to a retained-task release rejects once and frees the worker', async () => {
+            let p = createPool<{ hold: () => string }>('test.js', { limit: 1 });
+
+            let promise = p().hold();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            worker._emit('message', { retained: true, uuid: taskUuid });
+
+            expect(p.stats().busy).toBe(1);
+
+            let dispatchesBeforeRelease = worker.postMessage.mock.calls.length;
+
+            promise.dispatch('release');
+
+            // Release reply is an ERROR (cleanup threw in the worker) on the SAME uuid
+            simulateError(worker, taskUuid, { message: 'cleanup blew up', stack: 'Error: cleanup blew up' });
+
+            await expect(promise).rejects.toThrow('cleanup blew up');
+
+            // Worker freed, session torn down — no retry, no re-dispatch of the original action
+            expect(p.stats().busy).toBe(0);
+            expect(p.stats().idle).toBe(1);
+            expect(p.stats().retried).toBe(0);
+            expect(p.stats().completed).toBe(1);
+            expect(p.stats().failed).toBe(1);
+
+            // The only post after the release was the { release: true } message itself — no args/path re-dispatch
+            let redispatches = worker.postMessage.mock.calls
+                .slice(dispatchesBeforeRelease)
+                .filter((call: unknown[]) => 'args' in (call[0] as Record<string, unknown>) || 'path' in (call[0] as Record<string, unknown>));
+
+            expect(redispatches.length).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('F-51b retries=1: error reply to a retained-task release does not restart the action', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ hold: () => string }>('test.js', { limit: 1, retries: 1 });
+
+            let promise = p().hold();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            promise.catch(() => {});
+
+            worker._emit('message', { retained: true, uuid: taskUuid });
+
+            let dispatchesBeforeRelease = worker.postMessage.mock.calls.length;
+
+            promise.dispatch('release');
+
+            // Cleanup error on the release round-trip — must settle directly, NOT enter retry
+            simulateError(worker, taskUuid, { message: 'cleanup failed' });
+
+            await expect(promise).rejects.toThrow('cleanup failed');
+
+            // No retry armed: advancing past any backoff produces no re-execution
+            await vi.advanceTimersByTimeAsync(60000);
+
+            let redispatches = worker.postMessage.mock.calls
+                .slice(dispatchesBeforeRelease)
+                .filter((call: unknown[]) => 'args' in (call[0] as Record<string, unknown>) || 'path' in (call[0] as Record<string, unknown>));
+
+            expect(redispatches.length).toBe(0);
+            expect(p.stats().retried).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('F-52: error during shutdown grace window does not leak a retry timer', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                limit: 1,
+                retries: 2,
+                retryDelay: 30000,
+                shutdownTimeout: 5000
+            });
+
+            let task = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            let result = task.catch((e: Error) => e);
+
+            expect(p.stats().busy).toBe(1);
+
+            // Shutdown begins; task is still pending (in the grace window)
+            let shutdownPromise = p.shutdown();
+
+            // Error arrives DURING the grace window — must reject, not arm a retry timer
+            simulateError(worker, taskUuid, { message: 'died mid-shutdown' });
+
+            await expect(shutdownPromise).resolves.toBeUndefined();
+
+            let err = await result;
+
+            expect(err).toBeInstanceOf(Error);
+
+            // No retry timer leaked: nothing pending after shutdown resolves
+            expect(vi.getTimerCount()).toBe(0);
+
+            let dispatchesBefore = worker.postMessage.mock.calls.length;
+
+            // Advancing past the full retry delay triggers no re-dispatch
+            await vi.advanceTimersByTimeAsync(30000);
+
+            expect(worker.postMessage.mock.calls.length).toBe(dispatchesBefore);
+            expect(p.stats().retried).toBe(0);
+        });
+    });
 });

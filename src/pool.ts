@@ -169,6 +169,7 @@ class Pool {
                 task.retained = true;
                 task.worker = worker;
                 task.promise.on('release', () => {
+                    task.releasing = true;
                     worker.postMessage({ release: true, uuid: data.uuid });
                 });
                 return;
@@ -185,7 +186,7 @@ class Pool {
             }
 
             if (data.error) {
-                if (task.attempts < task.maxRetries) {
+                if (!task.releasing && !this.cleanup && task.attempts < task.maxRetries) {
                     this.retry(task);
                 }
                 else {
@@ -428,6 +429,12 @@ class Pool {
 
         this.idleTimers.clear();
 
+        for (let timer of this.retryTimers.values()) {
+            clearTimeout(timer);
+        }
+
+        this.retryTimers.clear();
+
         for (let i = 0, n = this.workers.length; i < n; i++) {
             this.workers[i].terminate();
         }
@@ -469,6 +476,7 @@ class Pool {
                 promise: promise as TaskPromise<unknown, Record<string, unknown>>,
                 queuedAt: performance.now(),
                 reject: reject! as (reason: unknown) => void,
+                releasing: false,
                 resolve: resolve! as (value: unknown) => void,
                 retained: false,
                 retryDelay: options?.retryDelay ?? this.defaultRetryDelay,
