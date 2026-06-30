@@ -12,6 +12,17 @@ const DEFAULT_SHUTDOWN_TIMEOUT = 5000;
 const MAX_CONCURRENCY = (cores() - 1) || 1;
 
 
+function numeric(name: string, value: number, min: number, integer: boolean): number {
+    let ok = integer ? Number.isInteger(value) : Number.isFinite(value);
+
+    if (!ok || value < min) {
+        throw new Error(`@esportsplus/workers: ${name} must be ${integer ? 'an integer' : 'a finite number'} >= ${min}`);
+    }
+
+    return value;
+}
+
+
 class Pool {
     private available: WorkerLike[] = [];
     private cleanup: (() => void) | null = null;
@@ -60,6 +71,21 @@ class Pool {
         this.maxTasksPerWorker = options?.maxTasksPerWorker ?? 0;
         this.shutdownTimeout = options?.shutdownTimeout ?? DEFAULT_SHUTDOWN_TIMEOUT;
         this.url = url;
+
+        numeric('heartbeatInterval', this.heartbeatInterval, 0, false);
+        numeric('heartbeatTimeout', this.heartbeatTimeout, 0, false);
+        numeric('idleTimeout', this.idleTimeout, 0, false);
+        numeric('maxTasksPerWorker', this.maxTasksPerWorker, 0, true);
+        numeric('retries', this.defaultRetries, 0, true);
+        numeric('shutdownTimeout', this.shutdownTimeout, 0, false);
+
+        if (!Number.isFinite(this.defaultRetryDelay) || this.defaultRetryDelay <= 0) {
+            throw new Error('@esportsplus/workers: retryDelay must be a finite number > 0');
+        }
+
+        if (!Number.isFinite(this.defaultMaxRetryDelay) || this.defaultMaxRetryDelay <= 0) {
+            throw new Error('@esportsplus/workers: maxRetryDelay must be a finite number > 0');
+        }
 
         let schedule: PriorityScheduler | undefined = options?.schedule;
 

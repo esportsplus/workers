@@ -2775,4 +2775,52 @@ describe('Pool', () => {
             expect(p.stats().retried).toBe(0);
         });
     });
+
+
+    describe('option validation', () => {
+        it('throws on negative idleTimeout', () => {
+            expect(() => createPool('test.js', { idleTimeout: -1 })).toThrow('idleTimeout');
+        });
+
+        it('throws on zero retryDelay', () => {
+            expect(() => createPool('test.js', { retryDelay: 0 })).toThrow('retryDelay');
+        });
+
+        it('throws on NaN retryDelay', () => {
+            expect(() => createPool('test.js', { retryDelay: NaN })).toThrow('retryDelay');
+        });
+
+        it('throws on negative maxRetryDelay', () => {
+            expect(() => createPool('test.js', { maxRetryDelay: -5 })).toThrow('maxRetryDelay');
+        });
+
+        it('throws on NaN heartbeatTimeout', () => {
+            expect(() => createPool('test.js', { heartbeatTimeout: NaN })).toThrow('heartbeatTimeout');
+        });
+
+        it('throws on negative retries', () => {
+            expect(() => createPool('test.js', { retries: -1 })).toThrow('retries');
+        });
+
+        it('throws on non-integer retries', () => {
+            expect(() => createPool('test.js', { retries: 1.5 })).toThrow('retries');
+        });
+
+        it('throws on negative shutdownTimeout', () => {
+            expect(() => createPool('test.js', { shutdownTimeout: -1 })).toThrow('shutdownTimeout');
+        });
+
+        it('accepts the disabled sentinels (zeros) and a fully-omitted options object', async () => {
+            expect(() => createPool('test.js', {
+                heartbeatInterval: 0,
+                idleTimeout: 0,
+                maxTasksPerWorker: 0,
+                shutdownTimeout: 0
+            })).not.toThrow();
+
+            expect(() => createPool('test.js')).not.toThrow();
+
+            await createPool('test.js', { limit: 1 }).shutdown();
+        });
+    });
 });
