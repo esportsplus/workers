@@ -2823,4 +2823,48 @@ describe('Pool', () => {
             await createPool('test.js', { limit: 1 }).shutdown();
         });
     });
+
+
+    describe('worker error fallback message', () => {
+        it('rejects with the default message when the error event carries no message', async () => {
+            let p = createPool<{ work: () => void }>('test.js', { limit: 1 });
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            // Error event with no message — exercises the `?? '...'` fallback in onerror
+            worker._emit('error', {});
+
+            await expect(promise).rejects.toThrow('@esportsplus/workers: worker error');
+            await p.shutdown();
+        });
+    });
+
+
+    describe('timeout stale-guard', () => {
+        it('completion clears the timeout: a fired stale timer is a no-op (no recycle, no timedOut)', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+
+            let promise = p({ timeout: 500 }).work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            // Complete before the deadline — clearTaskTimeout should disarm the timer
+            simulateResult(worker, taskUuid, 42);
+
+            await expect(promise).resolves.toBe(42);
+
+            // Advance past the original deadline: timer is gone, and even if it fired the
+            // `!this.pending.has(worker)` guard makes it a no-op
+            vi.advanceTimersByTime(500);
+
+            expect(p.stats().timedOut).toBe(0);
+            expect(p.stats().completed).toBe(1);
+            expect(worker.terminate).not.toHaveBeenCalled();
+
+            await p.shutdown();
+        });
+    });
 });
