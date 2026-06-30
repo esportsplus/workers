@@ -22,19 +22,6 @@ Both changed files were re-audited because run-4's spec-implementation modified 
 
 ### src/pool.ts
 
-#### F-54: numeric() per-field error tests assert only the field name, not the integer-vs-finite clause; maxTasksPerWorker + heartbeatInterval rejections unasserted
-- File: src/pool.ts:15-23 (helper) + 75-80 (call sites); test target tests/pool.ts:2780-2825
-- Symbol: numeric (per-field validation)
-- Category: test-quality
-- Priority: P1 (score: 69)
-- Evidence: `describe('option validation')` asserts only field-name substrings (`.toThrow('idleTimeout')` etc.). `numeric()`'s message (pool.ts:19) encodes `an integer` vs `a finite number` per the `integer` flag — `true` for maxTasksPerWorker/retries (L78-79), `false` for heartbeat*/idle/shutdown (L75-77, L80). Gaps: (1) `maxTasksPerWorker` has **no** rejection test; (2) `heartbeatInterval` has **no** rejection test (only `heartbeatTimeout` at :2797); (3) the integer-clause is never pinned for any field, so a `true`↔`false` flag swap (or a dropped `numeric()` call) keeps the field-name substring matching and the suite green.
-- Recommendation: add `maxTasksPerWorker: 2.5/-1` → throws + `/integer/`; `heartbeatInterval: -1/NaN` → throws; pin one integer field (`retries: 1.5` → `/retries must be an integer >= 0/`) and one finite field (`idleTimeout: -1` → `/idleTimeout must be a finite number >= 0/`).
-- Risk: a refactor mis-setting the `integer` flag/`min`, or omitting a field's `numeric()` call (maxTasksPerWorker, heartbeatInterval), silently accepts a fractional/negative/NaN option that corrupts timer/recycle math — suite stays green. 1 internal consumer; public PoolOptions API.
-- Confidence: HIGH
-- LOC delta: +14 / -0
-- Recommended-model: sonnet
-- Note: [CHANGELOG: similar to F-42 validate numeric PoolOptions — F-42 was the implementation; this hardens its test assertions]
-
 #### F-53: Priority-scheduler branch of pool.ts is entirely untested through createPool
 - File: src/pool.ts:90-98 (constructor schedule branch), 482-489 (context reprioritize leg); test target tests/pool.ts
 - Symbol: Pool.constructor (schedule branch) + Pool.context (reprioritize path)
@@ -71,4 +58,4 @@ spec-implementation builds its own `## Phases` plan from the file group above an
 
 Phase = file. Both findings target `tests/pool.ts`; one reused sonnet implementer, sequential, easiest-first. Benchmarking inactive (test-only, no src change). Gate = full vitest suite passes.
 
-- [ ] src/pool.ts — F-54 (numeric validation assertions), F-53 (priority-scheduling integration tests)
+- [ ] src/pool.ts — F-53 (priority-scheduling integration tests)
