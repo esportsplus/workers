@@ -48,18 +48,6 @@ Both files were re-audited because their hashes changed since run 3 (HEAD = `fix
 
 ### src/pool.ts
 
-#### F-42: Unvalidated numeric pool options enable self-DoS via the documented config surface
-- File: src/pool.ts:48
-- Symbol: constructor
-- Category: security
-- Priority: P2
-- Evidence: Only `limit` is validated (`Number.isInteger && >0`, line 56); other numeric `PoolOptions` are taken verbatim. Deep-dive downgraded the original claim: the headline NaN-`heartbeatTimeout` vector is **disproven** (`heartbeatInterval`/`heartbeatTimeout` are gated by `>0` at 162/263, so NaN/negative never arm). Genuine survivors: `idleTimeout:-1` is truthy → `setTimeout(replaceWorker,-1)` fires immediately → terminate-on-availability churn (a plausible sign typo); `retryDelay`/`maxRetryDelay` NaN → 0-backoff retry storm but only when `retries>0`; `shutdownTimeout` negative → zero-grace hard-kill (one-shot). `maxTasksPerWorker` is already safe (`>0` use-site guard, 208). Self-DoS only, not externally triggerable.
-- Recommendation: Add a ~5-line `Number.isFinite && range-check` block beside the existing `limit` guard: heartbeat/idle/maxTasks use `>=0` (0 = disabled sentinel); retry/shutdown want `>0`. Floor or throw on non-finite/negative to fail fast rather than silently produce immediate-fire timers.
-- Risk: Pool misconfiguration (or a config value derived from app-external input) produces sustained worker spawn/terminate churn (`idleTimeout:-1`) or a retry storm — CPU/process-handle pressure. Bounded to self-DoS within the same trust domain.
-- Confidence: MEDIUM (score: 38)
-- LOC delta: +6 / -0
-- Recommended-model: sonnet
-
 #### F-43: tasksPerWorker get+set maintained on every completion even when the feature is OFF (default)
 - File: src/pool.ts:206
 - Symbol: createWorker(onmessage completion path)
