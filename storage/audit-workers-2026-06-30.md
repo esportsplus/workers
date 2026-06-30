@@ -20,20 +20,7 @@ Both changed files were re-audited because run-4's spec-implementation modified 
 
 ## Findings
 
-### src/pool.ts
-
-#### F-53: Priority-scheduler branch of pool.ts is entirely untested through createPool
-- File: src/pool.ts:90-98 (constructor schedule branch), 482-489 (context reprioritize leg); test target tests/pool.ts
-- Symbol: Pool.constructor (schedule branch) + Pool.context (reprioritize path)
-- Category: coverage
-- Priority: P1 (score: 55)
-- Evidence: grep of tests/pool.ts for `schedule:|priorityQueue|PriorityQueue|compare` → **0 matches**. Every `createPool(...)` omits `options.schedule`, so constructor L92-98 (`new PriorityQueue(schedule.compare, schedule.context)`, `this.queue = this.priorityQueue`) never executes and `context()`'s `reprioritize(next)` + `processQueue()` leg (L487-488) has 0 references — only the FIFO no-op leg is tested (tests/pool.ts:1465). tests/index.ts only identity-checks the `priority` export. Distinct from F-16 (PriorityQueue isolated heap unit test) and F-18 (FIFO no-op leg) — neither guards the integration wiring.
-- Recommendation: add a `describe('priority scheduling')` block: `createPool('...', { limit: 1, schedule: { compare, context } })`. (1) saturate 1 worker + queue 2 differing-priority tasks, assert dispatch order follows `compare`; (2) call `p.context(newCtx)` and assert the queued order re-ranks against `newCtx` before the next dispatch, distinguishing it from the FIFO no-op at :1465.
-- Risk: a regression in PriorityQueue wiring (wrong comparator arg order, `context` not threaded, `reprioritize` not re-ranking, `processQueue` not re-pumped after `context()`) ships undetected — the pool's entire priority feature has no behavioral guard. Public-API export of the package.
-- Confidence: HIGH
-- LOC delta: +45 / -0
-- Recommended-model: sonnet
-- Note: [CHANGELOG: similar to F-18 pool.context() FIFO no-op coverage — complementary; F-18 covers the FIFO leg, this covers the priority leg]
+All findings COMPLETED — see `.claude/skills/code-audit/changelog.md` (F-53, F-54) and git history.
 
 ## Convergence Status
 
@@ -58,4 +45,4 @@ spec-implementation builds its own `## Phases` plan from the file group above an
 
 Phase = file. Both findings target `tests/pool.ts`; one reused sonnet implementer, sequential, easiest-first. Benchmarking inactive (test-only, no src change). Gate = full vitest suite passes.
 
-- [ ] src/pool.ts — F-53 (priority-scheduling integration tests)
+- [x] src/pool.ts — F-54 (numeric validation assertions) ✓, F-53 (priority-scheduling integration tests) ✓
