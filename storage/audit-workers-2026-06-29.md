@@ -48,30 +48,6 @@ Both files were re-audited because their hashes changed since run 3 (HEAD = `fix
 
 ### src/pool.ts
 
-#### F-43: tasksPerWorker get+set maintained on every completion even when the feature is OFF (default)
-- File: src/pool.ts:206
-- Symbol: createWorker(onmessage completion path)
-- Category: optimize
-- Priority: P2
-- Evidence: The completion handler (hottest fn, once per task) runs `this.tasksPerWorker.get` (206) + `set` (213) per task. When `maxTasksPerWorker===0` (the DEFAULT, line 60 `?? 0`), the `>0` guard at 208 is always false so the count is never read for any decision, yet the get+set still runs to maintain a number nothing uses — unconditional dead work on the default path. Benchmark-gated for the ≥10% bar; the default-path guard is unambiguous removed work regardless.
-- Recommendation: Gate the count maintenance behind `if (this.maxTasksPerWorker > 0)` (and skip the `set(worker,0)` init at 224 when off). Implementer's call on sub-point 2 (colocate the count with the worker record when the feature is on) per benchmark.
-- Risk: Low — count semantics unchanged; only a guard. Ensure replaceWorker/teardown reset still hold when the feature is on.
-- Confidence: HIGH (sub-point) (score: 41)
-- LOC delta: +8 / -0
-- Recommended-model: sonnet
-
-#### F-44: Proxy handler object re-allocated per proxy() call (hoistable to one-per-pool)
-- File: src/pool.ts:627
-- Symbol: default proxy factory (apply/get traps)
-- Category: optimize
-- Priority: P2
-- Evidence: Each `proxy(opts)` call (the `pool.foo.bar(args)` entry, on the per-task path for proxy-API callers) allocates a fresh 4-function handler object literal `{apply,deleteProperty,get,set}`. The handlers close only over `pool` (stable for the pool's lifetime), so the handler object can be created ONCE per pool and reused; currently rebuilt per scheduled task. Benchmark-gated for ≥10% (workload-dependent).
-- Recommendation: Hoist the handler object to one-per-pool scope (it references only `pool`); each `proxy()` reuses the single instance. Only the per-call target + `new Proxy` remain (they carry per-call `options`/`path`).
-- Risk: Low for the hoist (identical behavior — handlers are pure functions of target+pool).
-- Confidence: MEDIUM (score: 31)
-- LOC delta: +8 / -0
-- Recommended-model: sonnet
-
 ## Convergence Status
 
 - **Status:** DONE
