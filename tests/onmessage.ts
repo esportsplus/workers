@@ -528,6 +528,50 @@ describe('onmessage', () => {
             await vi.advanceTimersByTimeAsync(500);
         });
 
+        it('does not arm heartbeat when heartbeat:true but heartbeatInterval is omitted', async () => {
+            let handler = await setup({
+                slow: async function (this: unknown) {
+                    await new Promise<void>(() => { /* never resolves — keeps action pending */ });
+                }
+            });
+
+            vi.useFakeTimers();
+
+            // heartbeat:true present but heartbeatInterval omitted — guard must not arm
+            handler({ data: { args: [], heartbeat: true, path: 'slow', uuid: 'hb-omit' } });
+
+            // Advance well past the 50ms floor; a wrongly-armed interval would have fired
+            vi.advanceTimersByTime(300);
+
+            let heartbeatCalls = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls.length).toBe(0);
+        });
+
+        it('does not arm heartbeat when heartbeat:true but heartbeatInterval is 0', async () => {
+            let handler = await setup({
+                slow: async function (this: unknown) {
+                    await new Promise<void>(() => { /* never resolves — keeps action pending */ });
+                }
+            });
+
+            vi.useFakeTimers();
+
+            // heartbeat:true present but heartbeatInterval=0 — falsy, guard must not arm
+            handler({ data: { args: [], heartbeat: true, heartbeatInterval: 0, path: 'slow', uuid: 'hb-zero' } });
+
+            // Advance well past the 50ms floor; a wrongly-armed interval would have fired
+            vi.advanceTimersByTime(300);
+
+            let heartbeatCalls = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls.length).toBe(0);
+        });
+
         it('duplicate heartbeat message for same uuid replaces interval — only one fires per tick', async () => {
             let handler = await setup({
                 slow: async function (this: unknown) {
