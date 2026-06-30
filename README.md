@@ -1,6 +1,6 @@
 # @esportsplus/workers
 
-Lightweight, type-safe worker pool for **Browser** and **Node.js**. Features proxy-based API, automatic transferable detection, task cancellation, timeouts, and typed per-task events.
+Lightweight, type-safe worker pool for **Browser** and **Node.js**. Features proxy-based API, automatic transferable detection, task cancellation, timeouts, priority scheduling, and typed per-task events.
 
 ## Installation
 
@@ -62,7 +62,9 @@ let workers = pool<Actions>('/worker.js', {
     maxRetryDelay: 30000,     // Cap on exponential backoff
     maxTasksPerWorker: 1000,  // Recycle worker after N tasks
     retries: 3,               // Retry failed tasks up to 3 times
-    retryDelay: 1000          // Base delay for exponential backoff
+    retryDelay: 1000,         // Base delay for exponential backoff
+    shutdownTimeout: 5000     // Force shutdown after running tasks linger 5s
+    // schedule: priority(...) // Opt into priority scheduling — see below
 });
 ```
 
@@ -76,6 +78,10 @@ let workers = pool<Actions>('/worker.js', {
 | `maxTasksPerWorker` | `number` | `0` | Recycle worker after N completions (0 = never) |
 | `retries` | `number` | `0` | Max retry attempts for failed tasks (0 = disabled) |
 | `retryDelay` | `number` | `1000` | Base delay in ms for exponential backoff |
+| `schedule` | `PriorityScheduler` | — | Scheduler from `priority()`; queued tasks dispatch by `compare` instead of FIFO (see [Priority Scheduling](#priority-scheduling)) |
+| `shutdownTimeout` | `number` | `5000` | MS `shutdown()` waits for running tasks before forcing termination |
+
+Numeric options are validated at construction: `limit` must be a positive integer; `maxTasksPerWorker` and `retries` non-negative integers; timeouts/intervals finite numbers `>= 0`; `retryDelay` and `maxRetryDelay` finite numbers `> 0`. Invalid values throw `@esportsplus/workers: <option> must be ...`.
 
 ## Task Options
 
@@ -84,6 +90,7 @@ Pass options to `workers(options)` to configure individual tasks. These override
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `maxRetryDelay` | `number` | pool default | Override max backoff delay |
+| `meta` | `unknown` | — | Per-task key read by a priority scheduler's `compare` (ignored under FIFO) |
 | `retries` | `number` | pool default | Override max retry attempts |
 | `retryDelay` | `number` | pool default | Override base backoff delay |
 | `signal` | `AbortSignal` | — | Cancel task via AbortController |
@@ -148,6 +155,38 @@ let result = await workers({
     timeout: 10000
 }).processData(largeDataset);
 ```
+
+## Priority Scheduling
+
+By default the pool dispatches **queued** tasks FIFO. Opt into priority ordering by building a scheduler with `priority()` and passing it as the `schedule` option. Queued tasks then dispatch in ascending `compare(meta, context)` order — lowest first. A task that goes straight to an idle worker is unaffected (no contention, nothing to order).
+
+```ts
+import { pool, priority } from '@esportsplus/workers';
+import type { Actions } from './worker';
+
+// `meta` is the per-task key; `context` is shared pool state. Lower compare result dispatches first.
+let schedule = priority<{ weight: number }, { boost: number }>({
+    compare: (meta, ctx) => meta.weight - ctx.boost,
+    context: { boost: 0 }
+});
+
+let workers = pool<Actions>('/worker.js', { schedule });
+
+// Attach per-task `meta` via the task-options call. When both are queued, the lower weight goes first.
+workers({ meta: { weight: 10 } }).render(tileA);
+workers({ meta: { weight: 1 } }).render(tileB);  // dispatches before tileA
+```
+
+### Reprioritizing queued work
+
+`pool.context(next)` swaps the scheduler's shared context and re-ranks every queued task against it — useful for streaming/viewport cases where priorities shift as state changes. It's a no-op on a FIFO pool.
+
+```ts
+// Re-rank all queued tasks against an updated context (e.g. the camera moved)
+workers.context({ boost: 5 });
+```
+
+`compare` must return a number; returning `NaN` throws `@esportsplus/workers: PriorityQueue: compare returned NaN`.
 
 ## Transferables
 
@@ -367,8 +406,22 @@ let workers = pool<Actions, Events>(url, options);
 workers(taskOptions?).path.to.method(args);
 
 // Pool methods
-workers.stats();     // Get pool statistics
-workers.shutdown();  // Graceful shutdown
+workers.context(ctx); // Reprioritize queued tasks (priority pools only; no-op under FIFO)
+workers.shutdown();   // Graceful shutdown
+workers.stats();      // Get pool statistics
+```
+
+### `priority<Meta, Ctx>(config)`
+
+Builds a `PriorityScheduler` to pass as the pool's `schedule` option. `Meta` and `Ctx` are inferred from `config`.
+
+**Parameters:**
+- `config.compare` — `Comparator<Meta, Ctx>`: `(meta, ctx) => number`. Lower result dispatches first; must not return `NaN`.
+- `config.context` — initial shared context; swap it later via `pool.context(next)`.
+
+```ts
+let schedule = priority({ compare: (meta, ctx) => meta.weight - ctx.boost, context: { boost: 0 } });
+let workers = pool<Actions>('/worker.js', { schedule });
 ```
 
 ### `onmessage<E>(actions)`
@@ -408,6 +461,20 @@ type WorkerContext<E> = {
 };
 ```
 
+### `Comparator<Meta, Ctx>` & `PriorityScheduler<Meta, Ctx>`
+
+Types backing priority scheduling. `priority()` returns a `PriorityScheduler`; you rarely construct these by hand.
+
+```ts
+type Comparator<Meta, Ctx> = (meta: Meta, ctx: Ctx) => number;
+
+type PriorityScheduler<Meta, Ctx> = {
+    compare: Comparator<Meta, Ctx>;
+    context: Ctx;
+    kind: 'priority';
+};
+```
+
 ## Features
 
 - **Type-safe** - Full TypeScript inference for methods, args, returns, and events
@@ -415,6 +482,7 @@ type WorkerContext<E> = {
 - **Auto transferables** - ArrayBuffer, MessagePort, streams, AudioData, VideoFrame, and more detected automatically
 - **Auto pooling** - Workers created on-demand, recycled automatically
 - **Task queue** - Backpressure handling when workers busy
+- **Priority scheduling** - Optional `compare`-based queue ordering with live re-ranking via `pool.context()`
 - **Cancellation** - AbortSignal support for task cancellation
 - **Timeouts** - Per-task timeout configuration
 - **Task retry** - Exponential backoff with pool-level defaults and per-task overrides

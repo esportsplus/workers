@@ -1,5 +1,5 @@
 ---
-generated: 2026-06-30T01:00:00Z
+generated: 2026-06-30T19:37:03Z
 ttl: 3600
 source-hash: d1480098
 partial-refresh: true
@@ -17,13 +17,13 @@ sections-refreshed: [2,7,10]
 - **Deps**: `@esportsplus/queue` ^0.2.0 (FIFO queue), `@esportsplus/utilities` ^0.28.0 (`uuid`, `UUID`)
 - **Dev**: `vitest` ^4.1.9, `@types/node`, `@esportsplus/typescript` (shared tsconfig)
 
-## 2. File Tree (src/, 1372 LOC)
+## 2. File Tree (src/, 1402 LOC)
 
 ```
 src/
   index.ts              9    barrel — re-exports onmessage, pool, priority + types
   onmessage.ts        179    worker-side message handler (actions dispatch, retain/release, heartbeat)
-  pool.ts             660    main-thread Pool class + proxy factory (largest, hottest)
+  pool.ts             690    main-thread Pool class + proxy factory (largest, hottest)
   schedule.ts         154    priority() factory + PriorityQueue min-heap
   task.ts              32    TaskPromise (Promise subclass with event listeners)
   transfer.ts         129    collectTransferables — iterative transferable collection
@@ -128,7 +128,7 @@ index.ts — barrel entry (rank #9)
 
 | File | LOC | Exports | Imports | Consumers | Complexity | Centrality |
 |------|-----|---------|---------|-----------|------------|------------|
-| pool.ts | 660 | 1 (+Pool) | 7 | 1 | **high** | 0.55 |
+| pool.ts | 690 | 1 (+Pool) | 7 | 1 | **high** | 0.55 |
 | onmessage.ts | 179 | 2 | 3 | 1 | medium | 0.30 |
 | schedule.ts | 154 | 2 | 1 | 2 | medium | 0.30 |
 | types.ts | 130 | 13 | 2 | 6 | medium | 0.50 |
@@ -171,29 +171,24 @@ index.ts — barrel entry (rank #9)
 ## 10. Recent History
 
 ```
+77f3059 chore(spec): audit findings final state — F-53, F-54, F-50 done; F-45 blocked
+3153484 chore(spec): F-50 verified already covered, remove from backlog
+32d4ffa chore(spec): F-53, F-54 already done — remove from backlog
+f4fd5f7 chore(spec): add execution phases — pool.ts [P1], onmessage.ts [P2]
+3127191 chore(context): note F-53/F-54 coverage, suite 267
+62b4f57 docs(changelog): record F-53/F-54 test coverage
+e5e7479 chore(spec): F-53 done
+f0e04dd test(pool): cover priority-scheduler dispatch + context reprioritize (F-53)
+e6b4c64 chore(spec): F-54 done
+b86214b test(pool): pin numeric() per-field validation clauses (F-54)
+2af3add chore(spec): add phases plan for audit-2026-06-30
+753bd76 chore(context): refresh history + audit run 4 summary
+20d7363 chore(changelog): record audit-2026-06-29 spec-implementation (12 done, F-45 deferred)
+8694488 chore(spec): F-50 done; F-45 BLOCKED (perf gate unprovable)
 4849de2 test(onmessage): pin heartbeat-arm guard against missing/zero interval
-91500cd refactor(pool): skip tasksPerWorker bookkeeping when disabled, hoist proxy handler
-3f613ca fix(pool): validate numeric pool options in the constructor
-03df039 refactor(pool): drop dead Task.worker field and redundant shutdown pre-clears
-f9fc153 fix(pool): stop release-reply and post-shutdown errors from retrying
-293ba4f fix(onmessage): clear heartbeat interval before re-arming
-f8efff5 test(pool): pin timeout/recycle/idle/jitter edges
-2668822 refactor(pool): drop dead compare/priorityContext fields
-a73976b fix(pool): make duplicate retained:true idempotent
-ceec582 fix(pool): reserve internal 'release' worker event key
-22167f5 fix(pool): reap idle/heartbeat timers in teardownWorkers
-aec5521 fix(pool): reap retry backoff timers on shutdown
-c50a8ea fix(pool): recover queued tasks after worker crash
-6604e86 test(platform): cover node workerPort + browser entry
-96c7e9e perf(transfer): defer seen WeakSet on shallow payloads
-b61c37c fix(pool): idempotent shutdown
-4ac9c28 fix(onmessage): terminal release + heartbeat clamp
-b742b6a fix(schedule): exception-safe reprioritize
-2bc1ff3 refactor: static node imports in platform/node + vi.mock
-190dacc refactor: move platform modules into src/platform/
 ```
 
-(audit-workers-2026-06-29 findings F-1..F-52 implemented/rejected across 4 spec-implementation runs — see `.claude/skills/code-audit/changelog.md`. Run 4 (F-40..F-52): release-reply/post-shutdown retry guards (`task.releasing`, `!this.cleanup`, retryTimers reaped in teardownWorkers), numeric PoolOptions validation (`numeric()` helper), tasksPerWorker gating + proxy-handler hoist, dead `Task.worker` removal, redundant shutdown pre-clears removed, +16 mutation-killing tests. F-45 (onmessage closure reduction) BLOCKED — perf gate unprovable on the IPC-bound bench. Suite 259 passing.)
+(audit-workers-2026-06-29 findings F-1..F-54 across spec-implementation runs — see `.claude/skills/code-audit/changelog.md`. Latest: F-53 (priority-scheduler dispatch + `context()` reprioritize coverage) and F-54 (numeric() per-field validation clauses) closed by new `tests/pool.ts` blocks; F-50 (heartbeat arm/interval guard) verified covered in `tests/onmessage.ts`. Registry reconciled — F-53/F-54/F-50 → fixed (53 fixed total). F-45 (onmessage 3→1 closure reduction) remains BLOCKED — perf gate unprovable on the IPC-bound bench. Suite 267 passing.)
 
 ## 11. Build & Dev
 
