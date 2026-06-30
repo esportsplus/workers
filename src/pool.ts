@@ -15,7 +15,6 @@ const MAX_CONCURRENCY = (cores() - 1) || 1;
 class Pool {
     private available: WorkerLike[] = [];
     private cleanup: (() => void) | null = null;
-    private compare: Comparator<unknown, unknown> | null = null;
     private completed = 0;
     private defaultMaxRetryDelay: number;
     private defaultRetries: number;
@@ -30,7 +29,6 @@ class Pool {
     private limit: number;
     private maxTasksPerWorker: number;
     private pending = new Map<WorkerLike, Task>();
-    private priorityContext: unknown = undefined;
     private priorityQueue: PriorityQueue | null = null;
     private queue: PendingStore;
     private retried = 0;
@@ -66,9 +64,10 @@ class Pool {
         let schedule: PriorityScheduler | undefined = options?.schedule;
 
         if (schedule) {
-            this.compare = schedule.compare as Comparator<unknown, unknown>;
-            this.priorityContext = schedule.context;
-            this.priorityQueue = new PriorityQueue(this.compare, this.priorityContext);
+            this.priorityQueue = new PriorityQueue(
+                schedule.compare as Comparator<unknown, unknown>,
+                schedule.context
+            );
             this.queue = this.priorityQueue;
         }
         else {
@@ -445,7 +444,6 @@ class Pool {
             return;
         }
 
-        this.priorityContext = next;
         this.priorityQueue.reprioritize(next);
         this.processQueue();
     }
