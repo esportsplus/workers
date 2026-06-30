@@ -229,14 +229,19 @@ class Pool {
                 task.resolve(data.result);
             }
 
-            let count = (this.tasksPerWorker.get(worker) ?? 0) + 1;
+            if (this.maxTasksPerWorker > 0) {
+                let count = (this.tasksPerWorker.get(worker) ?? 0) + 1;
 
-            if (this.maxTasksPerWorker > 0 && count >= this.maxTasksPerWorker) {
-                this.replaceWorker(worker);
-                this.available.push(this.createWorker());
+                if (count >= this.maxTasksPerWorker) {
+                    this.replaceWorker(worker);
+                    this.available.push(this.createWorker());
+                }
+                else {
+                    this.tasksPerWorker.set(worker, count);
+                    this.markAvailable(worker);
+                }
             }
             else {
-                this.tasksPerWorker.set(worker, count);
                 this.markAvailable(worker);
             }
 
@@ -247,7 +252,10 @@ class Pool {
             this.processQueue();
         };
 
-        this.tasksPerWorker.set(worker, 0);
+        if (this.maxTasksPerWorker > 0) {
+            this.tasksPerWorker.set(worker, 0);
+        }
+
         this.workers.push(worker);
 
         return worker;
@@ -645,30 +653,31 @@ class Pool {
 
 export default <T extends Record<string, unknown>, E extends Record<string, Record<string, unknown>> = Record<string, Record<string, unknown>>>(url: string, options?: PoolOptions) => {
     let pool = new Pool(url, options),
+        handler: ProxyHandler<ProxyTarget<T>> = {
+            apply: (target: ProxyTarget<T>, _: unknown, values: unknown[]) => {
+                let opts = target.options,
+                    path = target.path;
+
+                target.options = undefined;
+                target.path = '';
+
+                return pool.schedule(path, values, opts);
+            },
+            deleteProperty: () => true,
+            get: (target: ProxyTarget<T>, key: string, receiver: unknown) => {
+                if (key === 'options' || key === 'path') {
+                    return Reflect.get(target, key);
+                }
+
+                target.path = target.path ? `${target.path}.${key}` : key;
+
+                return receiver;
+            },
+            set: () => true
+        },
         proxy = (options?: ScheduleOptions): InferWithEvents<T, E> => new Proxy(
             Object.assign(() => {}, { options, path: '' }) as ProxyTarget<T>,
-            {
-                apply: (target: ProxyTarget<T>, _: unknown, values: unknown[]) => {
-                    let opts = target.options,
-                        path = target.path;
-
-                    target.options = undefined;
-                    target.path = '';
-
-                    return pool.schedule(path, values, opts);
-                },
-                deleteProperty: () => true,
-                get: (target: ProxyTarget<T>, key: string, receiver: unknown) => {
-                    if (key === 'options' || key === 'path') {
-                        return Reflect.get(target, key);
-                    }
-
-                    target.path = target.path ? `${target.path}.${key}` : key;
-
-                    return receiver;
-                },
-                set: () => true
-            }
+            handler
         ) as unknown as InferWithEvents<T, E>;
 
     return Object.assign(proxy, {
