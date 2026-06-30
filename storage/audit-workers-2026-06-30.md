@@ -52,38 +52,6 @@
 - **Confidence:** MEDIUM
 - **LOC delta:** +12 / -0
 
-### src/pool.ts
-
-#### F-53: Priority-scheduler branch entirely untested via createPool
-- **Symbol:** Pool.constructor:schedule-branch
-- **Category:** testing
-- **Priority:** P1
-- **Recommended-model:** opus
-- **Evidence:** Constructor lines 92–98 (`new PriorityQueue(schedule.compare, schedule.context)`, `this.queue = this.priorityQueue`) and `context()` method (lines 482–489, reprioritize path) have zero test coverage. Every `createPool(…)` call in `tests/pool.ts` omits `options.schedule`, so the FIFO path is the only exercised leg. Grep of test suite for `schedule:`, `priorityQueue`, `PriorityQueue`, `compare` yields 0 matches. The `tests/index.ts` merely asserts that the `priority` export exists (identity check); it never constructs a priority pool.
-- **Recommendation:** Add `describe('priority scheduling')` suite:
-  1. Test dispatch order: `createPool('test.js', { limit: 1, schedule: { compare: (a, b, ctx) => (a.meta.priority > b.meta.priority ? -1 : 1), context: { … } } })` → saturate worker + queue 2 tasks with different priorities → assert higher-priority task dispatches first.
-  2. Test context reprioritize: call `pool.context(newCtx)` with inverted compare logic → assert queued order is re-ranked against new context before next dispatch.
-  3. Distinguish from FIFO no-op at `tests/pool.ts:1465`.
-- **Risk:** HIGH — Regression in PriorityQueue constructor wiring (wrong arg order, context not threaded, reprioritize not re-ranking, or processQueue not called) ships undetected. The pool's entire priority feature has no behavioral guard.
-- **Confidence:** HIGH
-- **LOC delta:** +45 / -0
-
-#### F-54: Validation test suite under-specifies numeric() error messages
-- **Symbol:** numeric:per-field-validation
-- **Category:** testing
-- **Priority:** P1
-- **Recommended-model:** opus
-- **Evidence:** Test suite (`tests/pool.ts:2780`–`:2825`, `describe('option validation')`) asserts ONLY the field-name substring in each validation error (`.toThrow('idleTimeout')`, `.toThrow('retryDelay')`, etc.). The full message built by `numeric()` (line 19) is `${name} must be ${integer ? 'an integer' : 'a finite number'} >= ${min}`.
-  - **Gap 1:** `maxTasksPerWorker` has NO rejection test at all (missing negative, non-integer, NaN cases). Flipping its `integer: true` flag to `false`, or removing its `numeric()` call, still passes.
-  - **Gap 2:** `heartbeatInterval` has NO rejection test (only `heartbeatTimeout` at `:2797`). Negative/NaN `heartbeatInterval` reaching dispatch is uncaught.
-  - **Gap 3:** The `integer`-clause is never asserted for ANY field. Swapping `integer` true↔false for a tested field (e.g., `retries` accepting `1.5`, or `idleTimeout` rejecting `1.5`) keeps the field-name substring intact, so the test at `:2805`/`:2782` still passes while validation semantics invert.
-- **Recommendation:**
-  - (a) Add `maxTasksPerWorker: 2.5` test → `.toThrow(/maxTasksPerWorker/)` AND `.toThrow(/integer/)`; add `maxTasksPerWorker: -1` → throws.
-  - (b) Add `heartbeatInterval: -1` and `heartbeatInterval: NaN` tests → throws containing `heartbeatInterval`.
-  - (c) Pin per-field validation message for each: `retries: 1.5` → `.toThrow(/retries must be an integer >= 0/)`; `idleTimeout: -1` → `.toThrow(/idleTimeout must be a finite number >= 0/)`.
-- **Risk:** HIGH — A refactor that mis-sets the `integer` flag or `min` threshold for any field, or omits a field's `numeric()` call (maxTasksPerWorker, heartbeatInterval), could invalidly accept fractional/negative/NaN options that corrupt timer math or recycle counting. Test suite stays green.
-- **Confidence:** HIGH
-- **LOC delta:** +14 / -0
 
 ---
 
@@ -98,8 +66,7 @@
 
 ## Phases
 
-- **[1]** src/pool.ts — F-53, F-54 (P1, testing)
-- **[2]** src/onmessage.ts — F-45, F-50 (P2, testing + performance)
+- **[1]** src/onmessage.ts — F-45, F-50 (P2, testing + performance)
 
 ---
 
