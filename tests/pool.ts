@@ -797,6 +797,35 @@ describe('Pool', () => {
             await expect(promise).resolves.toBe('released');
             await p.shutdown();
         });
+
+        it('duplicate retained:true is idempotent — single release listener', async () => {
+            let p = createPool<{ hold: () => string }>('test.js', { limit: 1 });
+
+            let promise = p().hold();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            // Retain twice for the same task — the second must short-circuit
+            worker._emit('message', { retained: true, uuid: taskUuid });
+            worker._emit('message', { retained: true, uuid: taskUuid });
+
+            // Slot not double-bound by the duplicate retain
+            expect(p.stats().busy).toBe(1);
+
+            // A single application release must fan out exactly ONE { release: true } postMessage
+            promise.dispatch('release');
+
+            let releaseCalls = worker.postMessage.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).release === true
+            );
+
+            expect(releaseCalls.length).toBe(1);
+
+            simulateResult(worker, taskUuid, 'released');
+
+            await expect(promise).resolves.toBe('released');
+            await p.shutdown();
+        });
     });
 
 

@@ -152,6 +152,10 @@ class Pool {
 
             // Task retained — worker stays bound
             if (data.retained) {
+                if (task.retained) {
+                    return;
+                }
+
                 this.clearTaskTimeout(task);
 
                 // Heartbeat tracks worker liveness (orthogonal to task duration), so it must
