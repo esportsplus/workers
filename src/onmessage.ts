@@ -99,9 +99,11 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
 
         // Start heartbeat interval if pool requested it
         if (data.heartbeat && data.heartbeatInterval) {
+            let interval = Math.max(50, Number(data.heartbeatInterval) || 0);
+
             heartbeats.set(uuid, setInterval(() => {
                 worker.postMessage({ heartbeat: true, uuid });
-            }, data.heartbeatInterval as number));
+            }, interval));
         }
 
         if (!action) {
@@ -125,9 +127,14 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
 
                     released = true;
                     cleanups.delete(uuid);
+                    clearHeartbeat(uuid);
                     worker.postMessage({ result, uuid }, collectTransferables(result));
                 },
                 retain: (fn?) => {
+                    if (released) {
+                        return;
+                    }
+
                     retained = true;
                     cleanup = fn;
                 }
@@ -137,6 +144,11 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
 
         try {
             let result = await action.call(context, ...args);
+
+            if (released) {
+                clearHeartbeat(uuid);
+                return;
+            }
 
             if (retained) {
                 if (cleanup) {

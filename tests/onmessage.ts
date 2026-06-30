@@ -462,6 +462,71 @@ describe('onmessage', () => {
 
             expect(heartbeatCalls.length).toBe(0);
         });
+
+        it('clamps a tiny heartbeatInterval to the 50ms floor', async () => {
+            let handler = await setup({
+                slow: async function (this: unknown) {
+                    await new Promise((r) => setTimeout(r, 500));
+                    return 'done';
+                }
+            });
+
+            vi.useFakeTimers();
+
+            // Request a 1ms interval — must be clamped to the 50ms floor
+            handler({ data: { args: [], heartbeat: true, heartbeatInterval: 1, path: 'slow', uuid: 'hb-clamp' } });
+
+            // Below the floor: no heartbeat may have fired yet
+            vi.advanceTimersByTime(49);
+
+            let beforeFloor = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            ).length;
+
+            expect(beforeFloor).toBe(0);
+
+            // At the floor: exactly one heartbeat fires (proves interval used >= 50)
+            vi.advanceTimersByTime(1);
+
+            let atFloor = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            ).length;
+
+            expect(atFloor).toBe(1);
+
+            await vi.advanceTimersByTimeAsync(500);
+        });
+
+        it('clamps a negative heartbeatInterval to the 50ms floor', async () => {
+            let handler = await setup({
+                slow: async function (this: unknown) {
+                    await new Promise((r) => setTimeout(r, 500));
+                    return 'done';
+                }
+            });
+
+            vi.useFakeTimers();
+
+            handler({ data: { args: [], heartbeat: true, heartbeatInterval: -100, path: 'slow', uuid: 'hb-neg' } });
+
+            vi.advanceTimersByTime(49);
+
+            let beforeFloor = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            ).length;
+
+            expect(beforeFloor).toBe(0);
+
+            vi.advanceTimersByTime(1);
+
+            let atFloor = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            ).length;
+
+            expect(atFloor).toBe(1);
+
+            await vi.advanceTimersByTimeAsync(500);
+        });
     });
 
 
@@ -589,7 +654,7 @@ describe('onmessage', () => {
 
 
     describe('release() called without prior retain()', () => {
-        it('sends two result messages — one from release and one from normal completion', async () => {
+        it('release() is terminal — return value does not post a second result', async () => {
             let handler = await setup({
                 releaseWithoutRetain: function (this: { release: (result?: unknown) => void }) {
                     this.release('early-result');
@@ -605,21 +670,21 @@ describe('onmessage', () => {
                 []
             );
 
-            // Normal completion posts { result: 'normal-result', uuid } because retained is false
-            expect(postMessageSpy).toHaveBeenCalledWith(
+            // Return value 'normal-result' must NOT be posted — release already settled
+            expect(postMessageSpy).not.toHaveBeenCalledWith(
                 { result: 'normal-result', uuid: 'rwr-1' },
                 []
             );
 
-            // Two result-bearing calls total
+            // Exactly one terminal result message
             let resultCalls = postMessageSpy.mock.calls.filter(
                 (c: unknown[]) => 'result' in (c[0] as Record<string, unknown>)
             );
 
-            expect(resultCalls).toHaveLength(2);
+            expect(resultCalls).toHaveLength(1);
         });
 
-        it('does not crash when release is called without retain', async () => {
+        it('does not crash when release is called without retain — single terminal result', async () => {
             let handler = await setup({
                 releaseOnly: function (this: { release: (result?: unknown) => void }) {
                     this.release();
@@ -628,12 +693,87 @@ describe('onmessage', () => {
 
             await send(handler, { args: [], path: 'releaseOnly', uuid: 'rwr-2' });
 
-            // Should not throw — both release() and normal path send messages
             let resultCalls = postMessageSpy.mock.calls.filter(
                 (c: unknown[]) => 'result' in (c[0] as Record<string, unknown>)
             );
 
-            expect(resultCalls).toHaveLength(2);
+            expect(resultCalls).toHaveLength(1);
+        });
+
+        it('release(partial) then return — exactly one completion delivers the released value, no heartbeat leak', async () => {
+            let handler = await setup({
+                releaseThenReturn: function (this: { release: (result?: unknown) => void }) {
+                    this.release('a');
+                    return 'b';
+                }
+            });
+
+            vi.useFakeTimers();
+
+            await handler({ data: { args: [], heartbeat: true, heartbeatInterval: 50, path: 'releaseThenReturn', uuid: 'rwr-3' } });
+
+            // Exactly one completion message, carrying the released value 'a' (not 'b')
+            let resultCalls = postMessageSpy.mock.calls.filter(
+                (c: unknown[]) => 'result' in (c[0] as Record<string, unknown>)
+            );
+
+            expect(resultCalls).toHaveLength(1);
+            expect((resultCalls[0][0] as Record<string, unknown>).result).toBe('a');
+
+            // No stray heartbeat interval remains — terminal release cleared it
+            postMessageSpy.mockClear();
+            vi.advanceTimersByTime(500);
+
+            let heartbeatCalls = postMessageSpy.mock.calls.filter(
+                (c: unknown[]) => (c[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls.length).toBe(0);
+        });
+
+        it('release() then retain() — retain is a no-op, no retained message, no heartbeat leak', async () => {
+            let cleanupSpy = vi.fn(() => 'cleaned'),
+                handler = await setup({
+                    releaseThenRetain: function (this: { release: (result?: unknown) => void; retain: (fn?: () => void) => void }) {
+                        this.release('settled');
+                        this.retain(cleanupSpy);
+                    }
+                });
+
+            vi.useFakeTimers();
+
+            await handler({ data: { args: [], heartbeat: true, heartbeatInterval: 50, path: 'releaseThenRetain', uuid: 'rwr-4' } });
+
+            // No { retained: true } posted — release was terminal before retain ran
+            let retainedCalls = postMessageSpy.mock.calls.filter(
+                (c: unknown[]) => (c[0] as Record<string, unknown>).retained === true
+            );
+
+            expect(retainedCalls).toHaveLength(0);
+
+            // Exactly one terminal result carrying the released value
+            let resultCalls = postMessageSpy.mock.calls.filter(
+                (c: unknown[]) => 'result' in (c[0] as Record<string, unknown>)
+            );
+
+            expect(resultCalls).toHaveLength(1);
+            expect((resultCalls[0][0] as Record<string, unknown>).result).toBe('settled');
+
+            // A later pool release finds no stored cleanup (retain was suppressed)
+            postMessageSpy.mockClear();
+            await handler({ data: { release: true, uuid: 'rwr-4' } });
+
+            expect(cleanupSpy).not.toHaveBeenCalled();
+
+            // No heartbeat interval leaked
+            postMessageSpy.mockClear();
+            vi.advanceTimersByTime(500);
+
+            let heartbeatCalls = postMessageSpy.mock.calls.filter(
+                (c: unknown[]) => (c[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls.length).toBe(0);
         });
     });
 
