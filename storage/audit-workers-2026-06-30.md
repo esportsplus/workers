@@ -41,17 +41,6 @@
 - **Confidence:** MEDIUM
 - **LOC delta:** +8 / -3
 
-#### F-50: Missing heartbeat interval arm guard in test suite
-- **Symbol:** test:heartbeat-arm-interval-guard
-- **Category:** testing
-- **Priority:** P2
-- **Recommended-model:** sonnet
-- **Evidence:** The heartbeat timer in `Pool.createWorker` arms on a user-supplied `options.heartbeatInterval`. Test suite (`:2667`–`:2690`) covers heartbeat timeout but does NOT explicitly test that a very small/zero `heartbeatInterval` does not cause runaway re-arming or cancellation-race conditions.
-- **Recommendation:** Add a test case: `heartbeatInterval: 5` + `createPool(…, { heartbeatTimeout: 1000, heartbeatInterval: 5 })` → spawn worker → assert exactly one heartbeat fires in [5–15]ms (no double-fire, no cascades).
-- **Risk:** Medium — A regression in timer cancellation or re-arm logic on edge-case intervals could ship.
-- **Confidence:** MEDIUM
-- **LOC delta:** +12 / -0
-
 
 ---
 
@@ -59,14 +48,14 @@
 
 - **Status:** DONE
 - **Coverage:** 9/9 files (100%)
-- **Open findings:** P0=0 · P1=2 · P2=2 (fixed=50, invalid=0)
+- **Open findings:** P0=0 · P1=2 · P2=1 (fixed=51, invalid=0)
 - **Reason:** full coverage (9/9). Findings, if any, are backlog.
 
 ---
 
 ## Phases
 
-- **[1]** src/onmessage.ts — F-45, F-50 (P2, testing + performance)
+- **[1]** src/onmessage.ts — F-45 (P2, performance)
 
 ---
 
