@@ -72,30 +72,6 @@ Both files were re-audited because their hashes changed since run 3 (HEAD = `fix
 - LOC delta: +8 / -0
 - Recommended-model: sonnet
 
-#### F-48: worker onerror with no .message never exercises the fallback error string
-- File: src/pool.ts:112
-- Symbol: createWorker (worker.onerror)
-- Category: test-quality
-- Priority: P2
-- Evidence: `task.reject(new Error(e.message ?? '@esportsplus/workers: worker error'))` — every worker-error test emits a message-bearing `Error`, so the `??` default branch (pool.ts:113) is reachable (an error event without `message`) but never taken. A mutation deleting the default survives.
-- Recommendation: Add a worker-errors case: `worker._emit('error', {})` (or `{message:undefined}`) while a task is pending → assert `rejects.toThrow('@esportsplus/workers: worker error')`.
-- Risk: A regression dropping the fallback yields `Error: undefined` rejections on malformed worker error events — silent loss of the diagnostic message.
-- Confidence: HIGH (score: 28)
-- LOC delta: +10 / -0
-- Recommended-model: sonnet
-
-#### F-49: dispatch timeout-callback stale guard / cleared-timer protection never asserted
-- File: src/pool.ts:247
-- Symbol: dispatch (task.timeoutId setTimeout callback)
-- Category: test-quality
-- Priority: P2
-- Evidence: The timeout callback opens with `if (!this.pending.has(worker)) return` (249-251), guarding against a timer firing after the task settled / the worker was reassigned. Every timeout test advances the clock while the task is still pending, so the guard is always false. The complete-before-expiry-then-advance-past-deadline case (no spurious recycle) is never asserted.
-- Recommendation: Add a fake-timers case (limit:1): schedule `{timeout:500}`, `simulateResult` at t=0, `advanceTimersByTime(500)` → assert `stats().timedOut===0`, `completed===1`, `worker.terminate` not called. Pins `clearTaskTimeout`-on-completion + the `!pending.has` guard.
-- Risk: If completion stops clearing the task timeout (or the guard is removed), a stale timer recycles a healthy, already-reassigned worker and inflates `timedOut` — silent worker churn + stats corruption.
-- Confidence: MEDIUM (score: 25)
-- LOC delta: +12 / -0
-- Recommended-model: sonnet
-
 ## Convergence Status
 
 - **Status:** DONE
