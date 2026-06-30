@@ -101,6 +101,7 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
         if (data.heartbeat && data.heartbeatInterval) {
             let interval = Math.max(50, Number(data.heartbeatInterval) || 0);
 
+            clearHeartbeat(uuid);
             heartbeats.set(uuid, setInterval(() => {
                 worker.postMessage({ heartbeat: true, uuid });
             }, interval));

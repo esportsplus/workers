@@ -527,6 +527,36 @@ describe('onmessage', () => {
 
             await vi.advanceTimersByTimeAsync(500);
         });
+
+        it('duplicate heartbeat message for same uuid replaces interval — only one fires per tick', async () => {
+            let handler = await setup({
+                slow: async function (this: unknown) {
+                    await new Promise((r) => setTimeout(r, 1000));
+                    return 'done';
+                }
+            });
+
+            vi.useFakeTimers();
+
+            // First message — registers heartbeat interval
+            handler({ data: { args: [], heartbeat: true, heartbeatInterval: 100, path: 'slow', uuid: 'hb-idem' } });
+
+            // Second message with same uuid — must clear the first interval before registering a new one
+            handler({ data: { args: [], heartbeat: true, heartbeatInterval: 100, path: 'slow', uuid: 'hb-idem' } });
+
+            postMessageSpy.mockClear();
+
+            // Advance exactly one interval — only ONE heartbeat should fire (not two from two orphaned intervals)
+            vi.advanceTimersByTime(100);
+
+            let heartbeatCalls = postMessageSpy.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).heartbeat === true
+            );
+
+            expect(heartbeatCalls.length).toBe(1);
+
+            await vi.advanceTimersByTimeAsync(1000);
+        });
     });
 
 
