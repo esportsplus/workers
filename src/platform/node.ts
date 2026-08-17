@@ -15,7 +15,9 @@ class NodeWorkerWrapper implements WorkerLike {
 
 
     constructor(url: string) {
-        this.worker = new Worker(url) as unknown as NodeWorker;
+        // Node's `Worker` accepts a path or a `URL` object but throws on a `file://` STRING — so wrap
+        // file URLs (the natural cross-platform worker identifier) in `new URL`; plain paths pass through.
+        this.worker = new Worker(url.startsWith('file:') ? new URL(url) : url) as unknown as NodeWorker;
     }
 
 
