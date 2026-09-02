@@ -704,9 +704,11 @@ export default <T extends Record<string, unknown>, E extends Record<string, Reco
                 return pool.schedule(path, values, opts);
             },
             deleteProperty: () => true,
-            get: (target: ProxyTarget<T>, key: string, receiver: unknown) => {
-                if (key === 'options' || key === 'path') {
-                    return Reflect.get(target, key);
+            get: (target: ProxyTarget<T>, key: string | symbol, receiver: unknown) => {
+                // Symbols (Symbol.toPrimitive, inspection hooks) and `then` (thenable detection) must not
+                // become path segments: they are hit by String()/util.inspect()/await, not user calls.
+                if (typeof key === 'symbol' || key === 'then') {
+                    return undefined;
                 }
 
                 target.path = target.path ? `${target.path}.${key}` : key;

@@ -704,6 +704,61 @@ describe('Pool', () => {
             await expect(promise).rejects.toThrow('task aborted');
             await p.shutdown();
         });
+
+        it('symbol keys return undefined and schedule nothing (B1)', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let proxy = p() as unknown as Record<symbol, unknown>;
+            let worker = mockWorkers[0];
+
+            expect(proxy[Symbol.toPrimitive]).toBeUndefined();
+            expect(proxy[Symbol.toStringTag]).toBeUndefined();
+            expect(proxy[Symbol.iterator]).toBeUndefined();
+            expect(() => `${proxy[Symbol.toPrimitive]}`).not.toThrow();
+
+            expect(worker.postMessage).not.toHaveBeenCalled();
+
+            await p.shutdown();
+        });
+
+        it('is not thenable: Promise.resolve returns the proxy and schedules nothing (B1)', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let proxy = p();
+            let worker = mockWorkers[0];
+
+            expect((proxy as unknown as Record<string, unknown>).then).toBeUndefined();
+
+            let resolved = await Promise.resolve(proxy);
+
+            expect(resolved).toBe(proxy);
+            expect(worker.postMessage).not.toHaveBeenCalled();
+
+            await p.shutdown();
+        });
+
+        it('actions named "path" and "options" are callable and dispatch their own path (B2)', async () => {
+            let p = createPool<{ options: () => number; path: () => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            expect(typeof p().path).toBe('function');
+
+            p().path();
+
+            let payloadPath = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payloadPath.path).toBe('path');
+
+            simulateResult(worker, payloadPath.uuid as string, 1);
+
+            p().options();
+
+            let payloadOptions = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payloadOptions.path).toBe('options');
+
+            simulateResult(worker, payloadOptions.uuid as string, 2);
+
+            await p.shutdown();
+        });
     });
 
 

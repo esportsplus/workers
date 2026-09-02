@@ -411,6 +411,8 @@ workers.shutdown();   // Graceful shutdown
 workers.stats();      // Get pool statistics
 ```
 
+`then` is reserved on the task proxy: the proxy is deliberately **not** a thenable, so awaiting or `Promise.resolve()`-ing a `workers(...)` proxy yields the proxy itself and schedules nothing. An action named `then` is therefore unreachable through the proxy; symbol keys (used by `String()`, `util.inspect`, and inspection) also resolve to `undefined` rather than scheduling a task.
+
 ### `priority<Meta, Ctx>(config)`
 
 Builds a `PriorityScheduler` to pass as the pool's `schedule` option. `Meta` and `Ctx` are inferred from `config`.
