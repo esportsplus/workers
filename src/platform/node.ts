@@ -3,22 +3,15 @@ import { Worker, parentPort } from 'node:worker_threads';
 import { WorkerLike, WorkerPort } from '../types';
 
 
-type NodeWorker = {
-    on(event: string, handler: (...args: unknown[]) => void): void;
-    postMessage(data: unknown, transfer?: Transferable[]): void;
-    terminate(): void;
-};
-
-
 class NodeWorkerWrapper implements WorkerLike {
     private terminated = false;
-    private worker: NodeWorker;
+    private worker: Worker;
 
 
     constructor(url: string) {
         // Node's `Worker` accepts a path or a `URL` object but throws on a `file://` STRING — so wrap
         // file URLs (the natural cross-platform worker identifier) in `new URL`; plain paths pass through.
-        this.worker = new Worker(url.startsWith('file:') ? new URL(url) : url) as unknown as NodeWorker;
+        this.worker = new Worker(url.startsWith('file:') ? new URL(url) : url);
     }
 
 
@@ -34,7 +27,7 @@ class NodeWorkerWrapper implements WorkerLike {
                 return;
             }
 
-            handler({ message: `@esportsplus/workers: worker exited with code ${code as number}` });
+            handler({ message: `@esportsplus/workers: worker exited with code ${code}` });
         });
     }
 
@@ -45,7 +38,7 @@ class NodeWorkerWrapper implements WorkerLike {
     }
 
     postMessage(data: unknown, transfer?: Transferable[]) {
-        this.worker.postMessage(data, transfer);
+        this.worker.postMessage(data, transfer as Parameters<Worker['postMessage']>[1]);
     }
 
     terminate() {
@@ -64,7 +57,7 @@ const workerPort = (): WorkerPort | null => {
         return null;
     }
 
-    let port = parentPort as unknown as NodeWorker;
+    let port = parentPort;
 
     return {
         set onmessage(fn: (e: MessageEvent) => void) {
@@ -73,7 +66,7 @@ const workerPort = (): WorkerPort | null => {
             });
         },
         postMessage: (data: unknown, transfer?: Transferable[]) => {
-            port.postMessage(data, transfer);
+            port.postMessage(data, transfer as Parameters<typeof port.postMessage>[1]);
         }
     };
 };

@@ -87,6 +87,11 @@ class Pool {
             throw new Error('@esportsplus/workers: maxRetryDelay must be a finite number > 0');
         }
 
+        // The worker side clamps the interval to a 50ms floor, so the deadline must clear both.
+        if (this.heartbeatInterval > 0 && this.heartbeatTimeout > 0 && this.heartbeatTimeout <= Math.max(this.heartbeatInterval, 50)) {
+            throw new Error('@esportsplus/workers: heartbeatTimeout must exceed heartbeatInterval');
+        }
+
         let schedule: PriorityScheduler | undefined = options?.schedule;
 
         if (schedule) {
@@ -166,9 +171,13 @@ class Pool {
                 return;
             }
 
-            // Heartbeat response from worker — reset deadline timer
+            // Heartbeat response from worker — reset deadline timer only while a task is pending; a
+            // heartbeat arriving after completion must not arm a timer that keeps the loop alive.
             if (data.heartbeat) {
-                this.startHeartbeatTimer(worker);
+                if (this.pending.has(worker)) {
+                    this.startHeartbeatTimer(worker);
+                }
+
                 return;
             }
 
@@ -240,7 +249,7 @@ class Pool {
                     this.completed++;
                     this.failed++;
                     task.reject(typeof err === 'object'
-                        ? Object.assign(new Error(err.message as string), { stack: err.stack })
+                        ? Object.assign(new Error(err.message as string), { name: err.name ?? 'Error', stack: err.stack })
                         : new Error(String(data.error)));
                 }
             }
@@ -415,10 +424,7 @@ class Pool {
             task.maxRetryDelay
         );
 
-        task.aborted = false;
-        task.retained = false;
         task.startedAt = undefined;
-        task.timeoutId = undefined;
         task.uuid = ++this.sequence;
         task.queuedAt = performance.now();
 
@@ -517,7 +523,6 @@ class Pool {
         }
 
         this.priorityQueue.reprioritize(next);
-        this.processQueue();
     }
 
     schedule<T, E extends Record<string, unknown>>(
@@ -610,7 +615,7 @@ class Pool {
         for (let [task, timer] of this.retryTimers) {
             clearTimeout(timer);
             this.clearAbort(task);
-            task.reject(new Error('@esportsplus/workers: pool closing'));
+            task.reject(new Error('@esportsplus/workers: pool is shutting down'));
         }
 
         this.retryTimers.clear();
@@ -619,7 +624,7 @@ class Pool {
 
         while (task) {
             this.clearAbort(task);
-            task.reject(new Error('@esportsplus/workers: pool closing'));
+            task.reject(new Error('@esportsplus/workers: pool is shutting down'));
             task = this.queue.next();
         }
 

@@ -83,6 +83,8 @@ let workers = pool<Actions>('/worker.js', {
 
 Numeric options are validated at construction: `limit` must be a positive integer; `maxTasksPerWorker` and `retries` non-negative integers; timeouts/intervals finite numbers `>= 0`; `retryDelay` and `maxRetryDelay` finite numbers `> 0`. Invalid values throw `@esportsplus/workers: <option> must be ...`.
 
+When both are enabled, `heartbeatTimeout` must exceed `heartbeatInterval` — and, because the worker side clamps the interval to a **50 ms floor**, it must exceed `max(heartbeatInterval, 50)`. Otherwise the deadline fires before the first heartbeat can arrive and every task is killed; the constructor throws `@esportsplus/workers: heartbeatTimeout must exceed heartbeatInterval`.
+
 ## Task Options
 
 Pass options to `workers(options)` to configure individual tasks. These override pool-level defaults.

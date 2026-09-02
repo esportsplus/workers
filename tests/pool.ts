@@ -53,7 +53,7 @@ function captureUuid(worker: MockNodeWorker, callIndex?: number): number {
     return (calls[idx][0] as Record<string, unknown>).uuid as number;
 }
 
-function simulateError(worker: MockNodeWorker, uuid: string | number, error: { message: string; stack?: string }) {
+function simulateError(worker: MockNodeWorker, uuid: string | number, error: { message: string; name?: string; stack?: string }) {
     worker._emit('message', { error, uuid });
 }
 
@@ -329,7 +329,7 @@ describe('Pool', () => {
 
 
     describe('shutdown', () => {
-        it('rejects queued tasks with "pool closing"', async () => {
+        it('rejects queued tasks with "pool is shutting down"', async () => {
             let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
 
             p().work();
@@ -337,7 +337,7 @@ describe('Pool', () => {
 
             let shutdownPromise = p.shutdown();
 
-            await expect(queued).rejects.toThrow('pool closing');
+            await expect(queued).rejects.toThrow('pool is shutting down');
 
             // Complete pending task
             let worker = mockWorkers[0];
@@ -1502,6 +1502,35 @@ describe('Pool', () => {
             await p.shutdown();
         });
 
+        it('a heartbeat arriving after completion arms no timer (B8)', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1
+            });
+
+            let promise = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            simulateResult(worker, taskUuid, 1);
+
+            await expect(promise).resolves.toBe(1);
+
+            // Stray heartbeat after completion: the worker is no longer pending, so no deadline is armed
+            worker._emit('message', { heartbeat: true, uuid: taskUuid });
+
+            expect(vi.getTimerCount()).toBe(0);
+
+            vi.advanceTimersByTime(1000);
+
+            expect(worker.terminate).not.toHaveBeenCalled();
+
+            await p.shutdown();
+        });
+
         it('heartbeat timer cleared on worker error', async () => {
             vi.useFakeTimers();
 
@@ -2312,7 +2341,7 @@ describe('Pool', () => {
             let err = await result;
 
             expect(err).toBeInstanceOf(Error);
-            expect((err as Error).message).toContain('pool closing');
+            expect((err as Error).message).toContain('pool is shutting down');
 
             await shutdownPromise;
         });
@@ -2339,7 +2368,7 @@ describe('Pool', () => {
             let err = await result;
 
             expect(err).toBeInstanceOf(Error);
-            expect((err as Error).message).toContain('pool closing');
+            expect((err as Error).message).toContain('pool is shutting down');
 
             // The retry timer is reaped: one fewer pending timer than during backoff, and
             // advancing past the full delay triggers no further dispatch
@@ -2984,6 +3013,20 @@ describe('Pool', () => {
             expect(() => createPool('test.js', { idleTimeout: -1 })).toThrow(/idleTimeout must be a finite number >= 0/);
         });
 
+        it('throws when heartbeatTimeout does not exceed heartbeatInterval (B9)', () => {
+            expect(() => createPool('test.js', { heartbeatInterval: 5000, heartbeatTimeout: 1000 }))
+                .toThrow('heartbeatTimeout must exceed heartbeatInterval');
+        });
+
+        it('throws when heartbeatTimeout does not exceed the 50ms interval floor (B9)', () => {
+            expect(() => createPool('test.js', { heartbeatInterval: 10, heartbeatTimeout: 20 }))
+                .toThrow('heartbeatTimeout must exceed heartbeatInterval');
+        });
+
+        it('accepts a heartbeatTimeout above both the interval and the 50ms floor (B9)', () => {
+            expect(() => createPool('test.js', { heartbeatInterval: 100, heartbeatTimeout: 500 })).not.toThrow();
+        });
+
         it('accepts the disabled sentinels (zeros) and a fully-omitted options object', async () => {
             expect(() => createPool('test.js', {
                 heartbeatInterval: 0,
@@ -3322,6 +3365,40 @@ describe('Pool', () => {
 
             await expect(promise).resolves.toBe('done');
             await shutdownPromise;
+        });
+    });
+
+
+    describe('serialized error name (D7)', () => {
+        it('reconstructs the error name reported by the worker', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            simulateError(worker, taskUuid, { message: 'bad type', name: 'TypeError', stack: 'TypeError: bad type' });
+
+            let err = await promise.catch((e: Error) => e);
+
+            expect((err as Error).name).toBe('TypeError');
+            expect((err as Error).message).toBe('bad type');
+
+            await p.shutdown();
+        });
+
+        it('falls back to Error when the worker omits a name', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            simulateError(worker, taskUuid, { message: 'plain' });
+
+            let err = await promise.catch((e: Error) => e);
+
+            expect((err as Error).name).toBe('Error');
+
+            await p.shutdown();
         });
     });
 

@@ -7,7 +7,7 @@ class TaskPromise<T, E extends Record<string, unknown> = Record<string, unknown>
     }
 
 
-    dispatch(event: 'release' | string, data?: unknown): void {
+    dispatch(event: string, data?: unknown): void {
         let handlers = this.listeners?.[event];
 
         if (!handlers) {

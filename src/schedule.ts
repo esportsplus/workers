@@ -39,7 +39,7 @@ class PriorityQueue {
         let key = this.compare(meta, this.context);
 
         if (key !== key) {
-            throw new Error('PriorityQueue: compare returned NaN');
+            throw new Error('@esportsplus/workers: PriorityQueue: compare returned NaN');
         }
 
         return key;

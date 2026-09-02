@@ -635,6 +635,22 @@ describe('onmessage', () => {
             );
         });
 
+        it('includes the error name in the serialized error (D7)', async () => {
+            let handler = await setup({
+                fail: function (this: unknown) { throw new TypeError('bad type'); }
+            });
+
+            await send(handler, { args: [], path: 'fail', uuid: 'd7' });
+
+            let call = postMessageSpy.mock.calls.find(
+                (c: unknown[]) => (c[0] as Record<string, unknown>).error
+            );
+
+            expect((call![0] as Record<string, unknown>).error).toEqual(
+                expect.objectContaining({ message: 'bad type', name: 'TypeError' })
+            );
+        });
+
         it('sends error when release cleanup throws Error', async () => {
             let handler = await setup({
                 hold: function (this: { retain: (fn?: () => void) => void }) {
@@ -848,6 +864,39 @@ describe('onmessage', () => {
             );
 
             expect(heartbeatCalls.length).toBe(0);
+        });
+    });
+
+
+    describe('independent state per instance (D3)', () => {
+        it('keeps cleanup maps independent across onmessage() instances', async () => {
+            let cleanupA = vi.fn(),
+                mod = await import('../src/onmessage');
+
+            mod.default({
+                hold: function (this: { retain: (fn?: () => void) => void }) {
+                    this.retain(cleanupA);
+                }
+            });
+
+            let handlerA = onmessageHandler!;
+
+            mod.default({ noop: function () {} });
+
+            let handlerB = onmessageHandler!;
+
+            // A retains a session under uuid 'shared'
+            await send(handlerA, { args: [], path: 'hold', uuid: 'shared' });
+
+            // A release for the same uuid on the OTHER instance must not reach A's cleanup
+            await send(handlerB, { release: true, uuid: 'shared' });
+
+            expect(cleanupA).not.toHaveBeenCalled();
+
+            // A's own release still runs its cleanup
+            await send(handlerA, { release: true, uuid: 'shared' });
+
+            expect(cleanupA).toHaveBeenCalledTimes(1);
         });
     });
 

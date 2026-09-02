@@ -3,10 +3,6 @@ import { collectTransferables } from './transfer';
 import { Actions, WorkerContext, WorkerPort } from './types';
 
 
-let cleanups = new Map<string, () => void | unknown>(),
-    heartbeats = new Map<string, ReturnType<typeof setInterval>>();
-
-
 function adapter(): WorkerPort {
     if (typeof self !== 'undefined' && typeof self.postMessage === 'function') {
         return self as unknown as WorkerPort;
@@ -19,15 +15,6 @@ function adapter(): WorkerPort {
     }
 
     throw new Error('@esportsplus/workers: must be called from within a worker context');
-}
-
-function clearHeartbeat(uuid: string) {
-    let id = heartbeats.get(uuid);
-
-    if (id !== undefined) {
-        clearInterval(id);
-        heartbeats.delete(uuid);
-    }
 }
 
 function flatten(obj: Actions, prefix: string, map: Map<string, (...args: unknown[]) => unknown>): Map<string, (...args: unknown[]) => unknown> {
@@ -52,8 +39,19 @@ function flatten(obj: Actions, prefix: string, map: Map<string, (...args: unknow
 
 
 export default <E extends Record<string, unknown> = Record<string, unknown>>(actions: Actions) => {
-    let map = flatten(actions, '', new Map()),
+    let cleanups = new Map<number, () => void | unknown>(),
+        heartbeats = new Map<number, ReturnType<typeof setInterval>>(),
+        map = flatten(actions, '', new Map()),
         worker = adapter();
+
+    function clearHeartbeat(uuid: number) {
+        let id = heartbeats.get(uuid);
+
+        if (id !== undefined) {
+            clearInterval(id);
+            heartbeats.delete(uuid);
+        }
+    }
 
     worker.onmessage = async (e) => {
         let data = e.data;
@@ -77,7 +75,7 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
                 }
                 catch (err) {
                     let error = err instanceof Error
-                        ? { message: err.message, stack: err.stack }
+                        ? { message: err.message, name: err.name, stack: err.stack }
                         : String(err);
 
                     worker.postMessage({ error, uuid: data.uuid });
@@ -167,7 +165,7 @@ export default <E extends Record<string, unknown> = Record<string, unknown>>(act
             clearHeartbeat(uuid);
 
             let error = err instanceof Error
-                ? { message: err.message, stack: err.stack }
+                ? { message: err.message, name: err.name, stack: err.stack }
                 : String(err);
 
             worker.postMessage({ error, uuid });
