@@ -11,9 +11,6 @@ importers:
       '@esportsplus/queue':
         specifier: ^0.2.0
         version: 0.2.0
-      '@esportsplus/utilities':
-        specifier: ^0.28.0
-        version: 0.28.0
     devDependencies:
       '@esportsplus/typescript':
         specifier: ^0.29.5

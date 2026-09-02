@@ -1,4 +1,3 @@
-import { UUID } from '@esportsplus/utilities';
 import { TaskPromise } from './task';
 
 
@@ -97,7 +96,7 @@ type Task = {
     startedAt?: number;
     timeout?: number;
     timeoutId?: ReturnType<typeof setTimeout>;
-    uuid: UUID;
+    uuid: number;
     values: unknown[];
 };
 

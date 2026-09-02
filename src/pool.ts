@@ -1,4 +1,3 @@
-import { uuid, type UUID } from '@esportsplus/utilities';
 import { cores, spawn } from './platform/node';
 import { PriorityQueue } from './schedule';
 import { TaskPromise } from './task';
@@ -44,9 +43,10 @@ class Pool {
     private queue: PendingStore;
     private retried = 0;
     private retryTimers = new Map<Task, ReturnType<typeof setTimeout>>();
+    private sequence = 0;
     private shutdownPromise: Promise<void> | null = null;
     private shutdownTimeout: number;
-    private tasks = new Map<UUID, Task>();
+    private tasks = new Map<number, Task>();
     private tasksPerWorker = new Map<WorkerLike, number>();
     private timedOut = 0;
     private totalRunTime = 0;
@@ -172,7 +172,7 @@ class Pool {
                 return;
             }
 
-            let task = this.tasks.get(data.uuid as UUID);
+            let task = this.tasks.get(data.uuid as number);
 
             if (!task) {
                 return;
@@ -223,7 +223,7 @@ class Pool {
             this.clearHeartbeatTimer(worker);
             this.clearTaskTimeout(task);
             this.pending.delete(worker);
-            this.tasks.delete(data.uuid as UUID);
+            this.tasks.delete(data.uuid as number);
 
             if (task.startedAt) {
                 this.totalRunTime += performance.now() - task.startedAt;
@@ -419,7 +419,7 @@ class Pool {
         task.retained = false;
         task.startedAt = undefined;
         task.timeoutId = undefined;
-        task.uuid = uuid();
+        task.uuid = ++this.sequence;
         task.queuedAt = performance.now();
 
         this.retryTimers.set(task, setTimeout(() => {
@@ -547,7 +547,7 @@ class Pool {
                 retryDelay: options?.retryDelay ?? this.defaultRetryDelay,
                 signal: options?.signal,
                 timeout: options?.timeout,
-                uuid: uuid(),
+                uuid: ++this.sequence,
                 values
             };
 

@@ -46,18 +46,18 @@ vi.mock('node:worker_threads', () => {
 });
 
 
-function captureUuid(worker: MockNodeWorker, callIndex?: number): string {
+function captureUuid(worker: MockNodeWorker, callIndex?: number): number {
     let calls = worker.postMessage.mock.calls;
     let idx = callIndex ?? calls.length - 1;
 
-    return (calls[idx][0] as Record<string, unknown>).uuid as string;
+    return (calls[idx][0] as Record<string, unknown>).uuid as number;
 }
 
-function simulateError(worker: MockNodeWorker, uuid: string, error: { message: string; stack?: string }) {
+function simulateError(worker: MockNodeWorker, uuid: string | number, error: { message: string; stack?: string }) {
     worker._emit('message', { error, uuid });
 }
 
-function simulateResult(worker: MockNodeWorker, uuid: string, result: unknown) {
+function simulateResult(worker: MockNodeWorker, uuid: string | number, result: unknown) {
     worker._emit('message', { result, uuid });
 }
 
@@ -3010,6 +3010,46 @@ describe('Pool', () => {
             worker._emit('error', {});
 
             await expect(promise).rejects.toThrow('@esportsplus/workers: worker error');
+            await p.shutdown();
+        });
+    });
+
+
+    describe('task ids (P2)', () => {
+        it('assigns a positive integer id that increases per task and per retry', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 1 });
+            let worker = mockWorkers[0];
+
+            let p1 = p().work();
+            let id1 = captureUuid(worker);
+
+            expect(Number.isInteger(id1)).toBe(true);
+            expect(id1).toBeGreaterThan(0);
+
+            simulateResult(worker, id1, 1);
+
+            await expect(p1).resolves.toBe(1);
+
+            let p2 = p().work();
+            let id2 = captureUuid(worker);
+
+            expect(id2).toBeGreaterThan(id1);
+
+            // First attempt fails — retry assigns a new, larger id
+            simulateError(worker, id2, { message: 'transient' });
+
+            await vi.advanceTimersByTimeAsync(2000);
+
+            let id3 = captureUuid(worker);
+
+            expect(id3).toBeGreaterThan(id2);
+
+            simulateResult(worker, id3, 2);
+
+            await expect(p2).resolves.toBe(2);
+
             await p.shutdown();
         });
     });
