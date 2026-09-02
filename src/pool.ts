@@ -109,6 +109,23 @@ class Pool {
     }
 
 
+    private acquire(): WorkerLike | undefined {
+        let worker = this.available.pop();
+
+        if (!worker && this.workers.length < this.limit) {
+            worker = this.createWorker();
+        }
+
+        return worker;
+    }
+
+    private clearAbort(task: Task) {
+        if (task.signal && task.onAbort) {
+            task.signal.removeEventListener('abort', task.onAbort);
+            task.onAbort = undefined;
+        }
+    }
+
     private clearHeartbeatTimer(worker: WorkerLike) {
         clearTimeout(this.heartbeatTimers.get(worker));
         this.heartbeatTimers.delete(worker);
@@ -130,17 +147,15 @@ class Pool {
         worker.onerror = (e) => {
             let task = this.pending.get(worker);
 
+            this.replaceWorker(worker);
+
             if (task) {
-                this.clearHeartbeatTimer(worker);
-                this.clearTaskTimeout(task);
-                this.pending.delete(worker);
-                this.tasks.delete(task.uuid);
+                this.settle(worker, task);
                 task.reject(
                     new Error(e.message ?? '@esportsplus/workers: worker error')
                 );
             }
 
-            this.replaceWorker(worker);
             this.processQueue();
         };
 
@@ -194,6 +209,10 @@ class Pool {
 
                 task.retained = true;
                 task.promise.on('release', () => {
+                    if (task.releasing) {
+                        return;
+                    }
+
                     task.releasing = true;
                     worker.postMessage({ release: true, uuid: data.uuid });
                 });
@@ -217,6 +236,7 @@ class Pool {
                 else {
                     let err = data.error as Record<string, unknown>;
 
+                    this.clearAbort(task);
                     this.completed++;
                     this.failed++;
                     task.reject(typeof err === 'object'
@@ -225,6 +245,7 @@ class Pool {
                 }
             }
             else {
+                this.clearAbort(task);
                 this.completed++;
                 task.resolve(data.result);
             }
@@ -234,7 +255,10 @@ class Pool {
 
                 if (count >= this.maxTasksPerWorker) {
                     this.replaceWorker(worker);
-                    this.available.push(this.createWorker());
+
+                    if (!this.cleanup) {
+                        this.markAvailable(this.createWorker());
+                    }
                 }
                 else {
                     this.tasksPerWorker.set(worker, count);
@@ -300,7 +324,14 @@ class Pool {
             this.startHeartbeatTimer(worker);
         }
 
-        worker.postMessage(payload, collectTransferables(task.values));
+        try {
+            worker.postMessage(payload, collectTransferables(task.values));
+        }
+        catch (error) {
+            this.settle(worker, task);
+            this.markAvailable(worker);
+            task.reject(error);
+        }
     }
 
     private processQueue() {
@@ -310,11 +341,7 @@ class Pool {
 
         // Mirrors the create-on-demand in schedule()/retry(): a crash can drop the pool to
         // zero available workers with queued work, so self-heal rather than strand the task.
-        let worker = this.available.pop();
-
-        if (!worker && this.workers.length < this.limit) {
-            worker = this.createWorker();
-        }
+        let worker = this.acquire();
 
         if (!worker) {
             return;
@@ -327,7 +354,7 @@ class Pool {
         }
 
         if (!task) {
-            this.available.push(worker);
+            this.markAvailable(worker);
             return;
         }
 
@@ -351,16 +378,12 @@ class Pool {
     }
 
     private recycleWorker(worker: WorkerLike, task: Task, countTimeout: boolean) {
-        this.clearTaskTimeout(task);
-        this.pending.delete(worker);
-        this.tasks.delete(task.uuid);
-
         if (countTimeout) {
             this.timedOut++;
         }
 
         this.replaceWorker(worker);
-        this.available.push(this.createWorker());
+        this.settle(worker, task);
     }
 
     private replaceWorker(worker: WorkerLike) {
@@ -403,29 +426,38 @@ class Pool {
             this.retryTimers.delete(task);
 
             if (task.aborted) {
+                this.clearAbort(task);
                 task.reject(new Error('@esportsplus/workers: task aborted'));
                 return;
             }
 
             if (this.cleanup) {
+                this.clearAbort(task);
                 task.reject(new Error('@esportsplus/workers: pool is shutting down'));
                 return;
             }
 
-            let worker = this.available.pop();
-
-            if (!worker && this.workers.length < this.limit) {
-                worker = this.createWorker();
-            }
+            let worker = this.acquire();
 
             if (worker) {
-                this.clearIdleTimer(worker);
                 this.dispatch(worker, task);
             }
             else {
                 this.queue.add(task);
             }
         }, delay));
+    }
+
+    private settle(worker: WorkerLike, task: Task) {
+        this.clearHeartbeatTimer(worker);
+        this.clearTaskTimeout(task);
+        this.clearAbort(task);
+        this.pending.delete(worker);
+        this.tasks.delete(task.uuid);
+
+        if (this.cleanup && this.pending.size === 0) {
+            this.cleanup();
+        }
     }
 
     private startHeartbeatTimer(worker: WorkerLike) {
@@ -530,8 +562,15 @@ class Pool {
                 return promise;
             }
 
-            task.signal.addEventListener('abort', () => {
+            task.onAbort = () => {
                 task.aborted = true;
+
+                let retryTimer = this.retryTimers.get(task);
+
+                if (retryTimer !== undefined) {
+                    clearTimeout(retryTimer);
+                    this.retryTimers.delete(task);
+                }
 
                 // If task is pending (running), terminate worker and replace
                 for (let [worker, pendingTask] of this.pending) {
@@ -541,22 +580,19 @@ class Pool {
                     }
                 }
 
+                this.clearAbort(task);
                 task.reject(new Error('@esportsplus/workers: task aborted'));
 
                 // Eagerly drain aborted tasks from queue head when a worker is idle
                 this.processQueue();
-            }, { once: true });
+            };
+
+            task.signal.addEventListener('abort', task.onAbort, { once: true });
         }
 
-        let worker = this.available.pop();
-
-        // Recreate worker if all were terminated due to idle timeout
-        if (!worker && this.workers.length < this.limit) {
-            worker = this.createWorker();
-        }
+        let worker = this.acquire();
 
         if (worker) {
-            this.clearIdleTimer(worker);
             this.dispatch(worker, task);
         }
         else {
@@ -573,6 +609,7 @@ class Pool {
 
         for (let [task, timer] of this.retryTimers) {
             clearTimeout(timer);
+            this.clearAbort(task);
             task.reject(new Error('@esportsplus/workers: pool closing'));
         }
 
@@ -581,12 +618,14 @@ class Pool {
         let task = this.queue.next();
 
         while (task) {
+            this.clearAbort(task);
             task.reject(new Error('@esportsplus/workers: pool closing'));
             task = this.queue.next();
         }
 
         for (let [worker, task] of this.pending) {
-            if (task.retained) {
+            if (task.retained && !task.releasing) {
+                task.releasing = true;
                 worker.postMessage({ release: true, uuid: task.uuid });
             }
         }
@@ -623,6 +662,7 @@ class Pool {
                 for (let [worker, task] of this.pending) {
                     this.clearHeartbeatTimer(worker);
                     this.clearTaskTimeout(task);
+                    this.clearAbort(task);
                     this.tasks.delete(task.uuid);
                     task.reject(new Error(`@esportsplus/workers: shutdown forced after ${this.shutdownTimeout}ms timeout`));
                 }

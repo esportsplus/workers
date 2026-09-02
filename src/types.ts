@@ -82,6 +82,7 @@ type Task = {
     maxRetries: number;
     maxRetryDelay: number;
     meta?: unknown;
+    onAbort?: () => void;
     path: string;
     // Cached priority key (compare(meta, context)) while the task sits in a priority queue; unused FIFO.
     priority?: number;

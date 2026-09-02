@@ -257,8 +257,8 @@ describe('Pool', () => {
             await p.shutdown();
         });
 
-        it('aborts running task and replaces worker', async () => {
-            let p = createPool<{ work: () => void }>('test.js', { limit: 1 });
+        it('aborts running task and terminates the worker without eager respawn', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
             let controller = new AbortController();
             let initialCount = mockWorkers.length;
 
@@ -272,9 +272,20 @@ describe('Pool', () => {
             await expect(promise).rejects.toThrow('task aborted');
             expect(worker.terminate).toHaveBeenCalled();
 
-            // A replacement worker should have been created
-            expect(mockWorkers.length).toBeGreaterThan(initialCount);
+            // No eager replacement — the pool drops the worker and re-creates on the next schedule
+            expect(mockWorkers.length).toBe(initialCount);
+            expect(p.stats().workers).toBe(0);
 
+            let next = p().work();
+
+            expect(mockWorkers.length).toBe(initialCount + 1);
+            expect(p.stats().workers).toBe(1);
+
+            let fresh = mockWorkers[mockWorkers.length - 1];
+
+            simulateResult(fresh, captureUuid(fresh), 7);
+
+            await expect(next).resolves.toBe(7);
             await p.shutdown();
         });
 
@@ -1238,7 +1249,7 @@ describe('Pool', () => {
             await p.shutdown();
         });
 
-        it('replaces dead worker with new one', async () => {
+        it('terminates dead worker without eager respawn', async () => {
             vi.useFakeTimers();
 
             let p = createPool<{ work: () => number }>('test.js', {
@@ -1253,10 +1264,10 @@ describe('Pool', () => {
 
             vi.advanceTimersByTime(500);
 
-            // Original terminated, replacement created
+            // Original terminated; no eager replacement — the next schedule re-creates on demand
             expect(mockWorkers[initialCount - 1].terminate).toHaveBeenCalled();
-            expect(mockWorkers.length).toBeGreaterThan(initialCount);
-            expect(p.stats().workers).toBe(1);
+            expect(mockWorkers.length).toBe(initialCount);
+            expect(p.stats().workers).toBe(0);
 
             await p.shutdown();
         });
@@ -1357,6 +1368,7 @@ describe('Pool', () => {
             });
 
             let promise = p({ signal: controller.signal }).work();
+            let worker = mockWorkers[0];
 
             controller.abort();
 
@@ -1365,10 +1377,9 @@ describe('Pool', () => {
             // Advance past what would have been the timeout
             vi.advanceTimersByTime(1000);
 
-            // The replacement worker should not be terminated by a stale heartbeat timer
-            let replacementWorker = mockWorkers[mockWorkers.length - 1];
-
-            expect(replacementWorker.terminate).not.toHaveBeenCalled();
+            // Worker terminated exactly once by the abort; the cleared heartbeat timer did not recycle again
+            expect(worker.terminate).toHaveBeenCalledTimes(1);
+            expect(mockWorkers.length).toBe(1);
 
             await p.shutdown();
         });
@@ -1428,10 +1439,10 @@ describe('Pool', () => {
             // Advance past the heartbeat deadline
             vi.advanceTimersByTime(500);
 
-            // Dead retained worker detected: terminated, replaced, retained task rejected
+            // Dead retained worker detected: terminated (no eager respawn), retained task rejected
             await expect(promise).rejects.toThrow('worker heartbeat timeout after 500ms');
             expect(worker.terminate).toHaveBeenCalled();
-            expect(p.stats().workers).toBe(1);
+            expect(p.stats().workers).toBe(0);
 
             await p.shutdown();
         });
@@ -2945,6 +2956,248 @@ describe('Pool', () => {
 
             await expect(promise).rejects.toThrow('@esportsplus/workers: worker error');
             await p.shutdown();
+        });
+    });
+
+
+    describe('synchronous postMessage failure (B3)', () => {
+        it('rejects the task, frees the worker for the next dispatch, and lets shutdown resolve at once', async () => {
+            let p = createPool<{ work: (n: number) => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            worker.postMessage.mockImplementationOnce(() => {
+                throw new Error('DataCloneError: could not be cloned');
+            });
+
+            let failed = p().work(1);
+
+            await expect(failed).rejects.toThrow('DataCloneError');
+
+            // Worker not pinned — the slot returns to idle
+            expect(p.stats().busy).toBe(0);
+            expect(p.stats().idle).toBe(1);
+
+            // The next task dispatches on the same worker
+            let ok = p().work(2);
+            let payload = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0] as Record<string, unknown>;
+
+            expect(payload.args).toEqual([2]);
+
+            simulateResult(worker, payload.uuid as string, 20);
+
+            await expect(ok).resolves.toBe(20);
+
+            // No pinned pending task — shutdown resolves immediately
+            await expect(p.shutdown()).resolves.toBeUndefined();
+        });
+    });
+
+
+    describe('shutdown resolves on abnormal end of the last pending task (B4)', () => {
+        it('crash resolves shutdown immediately', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, shutdownTimeout: 100000 });
+            let task = p().work();
+            let worker = mockWorkers[0];
+
+            task.catch(() => {});
+
+            expect(p.stats().busy).toBe(1);
+
+            let shutdownPromise = p.shutdown();
+
+            worker._emit('error', new Error('boom'));
+
+            await expect(shutdownPromise).resolves.toBeUndefined();
+        });
+
+        it('abort resolves shutdown immediately', async () => {
+            let controller = new AbortController();
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, shutdownTimeout: 100000 });
+            let task = p({ signal: controller.signal }).work();
+
+            task.catch(() => {});
+
+            expect(p.stats().busy).toBe(1);
+
+            let shutdownPromise = p.shutdown();
+
+            controller.abort();
+
+            await expect(shutdownPromise).resolves.toBeUndefined();
+        });
+
+        it('task timeout resolves shutdown before the grace period', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, shutdownTimeout: 100000 });
+            let task = p({ timeout: 50 }).work();
+
+            task.catch(() => {});
+
+            let shutdownPromise = p.shutdown();
+
+            // Fire the task timeout (50ms) — far below the 100000ms grace deadline
+            await vi.advanceTimersByTimeAsync(50);
+
+            await expect(shutdownPromise).resolves.toBeUndefined();
+        });
+
+        it('heartbeat timeout resolves shutdown before the grace period', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', {
+                heartbeatInterval: 100,
+                heartbeatTimeout: 500,
+                limit: 1,
+                shutdownTimeout: 100000
+            });
+            let task = p().work();
+
+            task.catch(() => {});
+
+            let shutdownPromise = p.shutdown();
+
+            await vi.advanceTimersByTimeAsync(500);
+
+            await expect(shutdownPromise).resolves.toBeUndefined();
+        });
+    });
+
+
+    describe('idle reaping of on-demand workers (B5)', () => {
+        it('a worker created after a timeout recycle is reaped by idleTimeout', async () => {
+            vi.useFakeTimers();
+
+            let p = createPool<{ work: () => number }>('test.js', { idleTimeout: 3000, limit: 1 });
+
+            // First task creates a worker on demand, which then times out and is torn down
+            let p1 = p({ timeout: 100 }).work();
+
+            p1.catch(() => {});
+
+            await vi.advanceTimersByTimeAsync(100);
+
+            await expect(p1).rejects.toThrow('task timed out');
+            expect(p.stats().workers).toBe(0);
+
+            // Next task creates a fresh worker; on completion markAvailable arms its idle timer
+            let p2 = p().work();
+            let worker = mockWorkers[mockWorkers.length - 1];
+
+            simulateResult(worker, captureUuid(worker), 1);
+
+            await expect(p2).resolves.toBe(1);
+            expect(p.stats().workers).toBe(1);
+
+            // The idle timer reaps the on-demand worker
+            await vi.advanceTimersByTimeAsync(3000);
+
+            expect(worker.terminate).toHaveBeenCalled();
+            expect(p.stats().workers).toBe(0);
+
+            await p.shutdown();
+        });
+    });
+
+
+    describe('abort listener lifecycle (B6)', () => {
+        it('removes the abort listener when each task settles (no accumulation on a shared signal)', async () => {
+            let p = createPool<{ work: (n: number) => number }>('test.js', { limit: 1 });
+            let controller = new AbortController();
+            let signal = controller.signal;
+            let addSpy = vi.spyOn(signal, 'addEventListener');
+            let removeSpy = vi.spyOn(signal, 'removeEventListener');
+            let worker = mockWorkers[0];
+
+            for (let i = 0; i < 5; i++) {
+                let promise = p({ signal }).work(i);
+
+                simulateResult(worker, captureUuid(worker), i);
+
+                await expect(promise).resolves.toBe(i);
+            }
+
+            // Every added abort listener was removed on settle — net zero remain
+            expect(addSpy).toHaveBeenCalledTimes(5);
+            expect(removeSpy).toHaveBeenCalledTimes(5);
+
+            addSpy.mockRestore();
+            removeSpy.mockRestore();
+
+            await p.shutdown();
+        });
+
+        it('abort during the retry delay clears the retry timer (no leaked timers)', async () => {
+            vi.useFakeTimers();
+
+            let controller = new AbortController();
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1, retries: 2, retryDelay: 30000 });
+            let promise = p({ signal: controller.signal }).work();
+            let worker = mockWorkers[0];
+
+            // First attempt fails — the task enters retry backoff (an armed retry timer)
+            simulateError(worker, captureUuid(worker), { message: 'transient' });
+
+            expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+            // Abort during the backoff — the retry timer must be cleared eagerly
+            controller.abort();
+
+            await expect(promise).rejects.toThrow('task aborted');
+
+            expect(vi.getTimerCount()).toBe(0);
+
+            await p.shutdown();
+        });
+    });
+
+
+    describe('duplicate release guard (B10)', () => {
+        it('a second release dispatch sends no second release frame', async () => {
+            let p = createPool<{ hold: () => string }>('test.js', { limit: 1 });
+            let promise = p().hold();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            worker._emit('message', { retained: true, uuid: taskUuid });
+
+            promise.dispatch('release');
+            promise.dispatch('release');
+
+            let releaseCalls = worker.postMessage.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).release === true
+            );
+
+            expect(releaseCalls.length).toBe(1);
+
+            simulateResult(worker, taskUuid, 'done');
+
+            await expect(promise).resolves.toBe('done');
+            await p.shutdown();
+        });
+
+        it('shutdown does not re-release a task already releasing', async () => {
+            let p = createPool<{ hold: () => string }>('test.js', { limit: 1 });
+            let promise = p().hold();
+            let worker = mockWorkers[0];
+            let taskUuid = captureUuid(worker);
+
+            worker._emit('message', { retained: true, uuid: taskUuid });
+
+            promise.dispatch('release');
+
+            let shutdownPromise = p.shutdown();
+
+            let releaseCalls = worker.postMessage.mock.calls.filter(
+                (call: unknown[]) => (call[0] as Record<string, unknown>).release === true
+            );
+
+            expect(releaseCalls.length).toBe(1);
+
+            simulateResult(worker, taskUuid, 'done');
+
+            await expect(promise).resolves.toBe('done');
+            await shutdownPromise;
         });
     });
 
