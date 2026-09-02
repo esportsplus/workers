@@ -79,6 +79,13 @@ let shallowArrayBuffer: unknown[] = [new ArrayBuffer(8)],
     shallowDuplicateLeaf: unknown[] = [sharedBuffer, sharedBuffer],
     shallowTypedShape = { data: new ArrayBuffer(1024), height: 100, width: 100 };
 
+let MB = 1024 * 1024;
+
+let rawArrayBuffer1MB: unknown[] = [new ArrayBuffer(MB)],
+    viewBuffer1MB: unknown[] = [Buffer.alloc(MB)],
+    viewFloat32Object1MB = { img: new Float32Array(MB / 4) },
+    viewUint8Array1MB: unknown[] = [new Uint8Array(MB)];
+
 
 console.log(`\n${'─'.repeat(80)}`);
 console.log('  collectTransferables — stack-walk micro-bench');
@@ -123,5 +130,25 @@ printResult(benchmark('shallow { data: buf, w, h }', () => {
 printResult(benchmark('shallow [buf, buf] duplicate leaf', () => {
     collectTransferables(shallowDuplicateLeaf);
 }));
+
+console.log(`${'─'.repeat(80)}`);
+console.log('  TYPED-ARRAY / VIEW PAYLOADS (P1 target — leaf guard, no index enumeration)');
+console.log(`${'─'.repeat(80)}`);
+
+printResult(benchmark('raw [ArrayBuffer 1MB] (reference)', () => {
+    collectTransferables(rawArrayBuffer1MB);
+}, { iterations: 20000, warmup: 2000 }));
+
+printResult(benchmark('view [Uint8Array 1MB]', () => {
+    collectTransferables(viewUint8Array1MB);
+}, { iterations: 20000, warmup: 2000 }));
+
+printResult(benchmark('view { img: Float32Array 1MB }', () => {
+    collectTransferables(viewFloat32Object1MB);
+}, { iterations: 20000, warmup: 2000 }));
+
+printResult(benchmark('view [Buffer 1MB]', () => {
+    collectTransferables(viewBuffer1MB);
+}, { iterations: 20000, warmup: 2000 }));
 
 console.log(`${'─'.repeat(80)}\n`);

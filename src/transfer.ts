@@ -5,7 +5,7 @@ function hasOnlyPrimitiveValues(obj: Record<string, unknown>): boolean {
     for (let key in obj) {
         let v = obj[key];
 
-        if (v && typeof v === 'object') {
+        if (v && typeof v === 'object' && !ArrayBuffer.isView(v)) {
             return false;
         }
     }
@@ -17,7 +17,7 @@ function isAllPrimitive(arr: unknown[]): boolean {
     for (let i = 0, n = arr.length; i < n; i++) {
         let v = arr[i];
 
-        if (v && typeof v === 'object') {
+        if (v && typeof v === 'object' && !ArrayBuffer.isView(v)) {
             return false;
         }
     }
@@ -42,6 +42,13 @@ function isTransferable(v: object): boolean {
 function collectTransferables(value: unknown): Transferable[] {
     // Fast-path: primitives (null, undefined, boolean, number, string, bigint, symbol)
     if (!value || typeof value !== 'object') {
+        return [];
+    }
+
+    // Typed arrays / DataView / Node Buffer are structured-cloned as leaves (their backing buffer is NOT
+    // auto-transferred — callers may hold other views on it), so treat them as leaves and never enumerate
+    // their indices.
+    if (ArrayBuffer.isView(value)) {
         return [];
     }
 
@@ -82,7 +89,7 @@ function collectTransferables(value: unknown): Transferable[] {
             for (let i = 0, n = current.length; i < n; i++) {
                 let child = current[i];
 
-                if (child && typeof child === 'object') {
+                if (child && typeof child === 'object' && !ArrayBuffer.isView(child)) {
                     if (isTransferable(child)) {
                         result.push(child as Transferable);
                     }
@@ -101,7 +108,7 @@ function collectTransferables(value: unknown): Transferable[] {
             for (let key in current) {
                 let child = (current as Record<string, unknown>)[key];
 
-                if (child && typeof child === 'object') {
+                if (child && typeof child === 'object' && !ArrayBuffer.isView(child)) {
                     if (isTransferable(child as object)) {
                         result.push(child as Transferable);
                     }

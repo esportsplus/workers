@@ -374,6 +374,58 @@ describe('collectTransferables', () => {
     });
 
 
+    describe('typed-array / view leaves (P1)', () => {
+        it('returns empty for a top-level Uint8Array', () => {
+            expect(collectTransferables(new Uint8Array(16))).toEqual([]);
+        });
+
+        it('returns empty for a top-level Float32Array', () => {
+            expect(collectTransferables(new Float32Array(16))).toEqual([]);
+        });
+
+        it('returns empty for a top-level DataView', () => {
+            expect(collectTransferables(new DataView(new ArrayBuffer(16)))).toEqual([]);
+        });
+
+        it('returns empty for a Node Buffer', () => {
+            expect(collectTransferables(Buffer.alloc(16))).toEqual([]);
+        });
+
+        it('returns empty for a view nested in an object', () => {
+            expect(collectTransferables({ img: new Float32Array(16) })).toEqual([]);
+        });
+
+        it('returns empty for a view nested in an array', () => {
+            expect(collectTransferables([new Uint8Array(16)])).toEqual([]);
+        });
+
+        it('does not transfer a view backing buffer but still yields a sibling ArrayBuffer', () => {
+            let buffer = new ArrayBuffer(8);
+            let result = collectTransferables([new Uint8Array(16), buffer]);
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(buffer);
+        });
+
+        it('yields a real ArrayBuffer nested beside a view in an object', () => {
+            let buffer = new ArrayBuffer(8);
+            let result = collectTransferables({ raw: buffer, view: new Uint8Array(16) });
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toBe(buffer);
+        });
+
+        it('completes a 1 MB view in well under a millisecond', () => {
+            let view = new Uint8Array(1024 * 1024);
+            let start = performance.now();
+
+            expect(collectTransferables(view)).toEqual([]);
+
+            expect(performance.now() - start).toBeLessThan(1);
+        });
+    });
+
+
     describe('edge cases', () => {
         it('handles objects with no transferables', () => {
             let result = collectTransferables({
