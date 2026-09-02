@@ -3015,6 +3015,35 @@ describe('Pool', () => {
     });
 
 
+    describe('node worker exit (B7)', () => {
+        it('rejects the pending task and drops the worker when it exits without an error event', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let promise = p().work();
+            let worker = mockWorkers[0];
+
+            worker._emit('exit', 1);
+
+            await expect(promise).rejects.toThrow('worker exited with code 1');
+            expect(worker.terminate).toHaveBeenCalled();
+            expect(p.stats().workers).toBe(0);
+
+            await p.shutdown();
+        });
+
+        it('ignores an exit event after the pool terminated the worker', async () => {
+            let p = createPool<{ work: () => number }>('test.js', { limit: 1 });
+            let worker = mockWorkers[0];
+
+            await p.shutdown();
+
+            let calls = worker.postMessage.mock.calls.length;
+
+            expect(() => worker._emit('exit', 0)).not.toThrow();
+            expect(worker.postMessage.mock.calls.length).toBe(calls);
+        });
+    });
+
+
     describe('task ids (P2)', () => {
         it('assigns a positive integer id that increases per task and per retry', async () => {
             vi.useFakeTimers();

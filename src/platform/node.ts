@@ -1,4 +1,4 @@
-import { cpus } from 'node:os';
+import { availableParallelism } from 'node:os';
 import { Worker, parentPort } from 'node:worker_threads';
 import { WorkerLike, WorkerPort } from '../types';
 
@@ -11,6 +11,7 @@ type NodeWorker = {
 
 
 class NodeWorkerWrapper implements WorkerLike {
+    private terminated = false;
     private worker: NodeWorker;
 
 
@@ -25,6 +26,16 @@ class NodeWorkerWrapper implements WorkerLike {
         this.worker.on('error', (err) => {
             handler({ message: (err as Error).message });
         });
+
+        // A worker that exits without an `error` event (process.exit, OS kill, native crash) still
+        // strands its pending task; route `exit` through the same handler unless the pool terminated it.
+        this.worker.on('exit', (code) => {
+            if (this.terminated) {
+                return;
+            }
+
+            handler({ message: `@esportsplus/workers: worker exited with code ${code as number}` });
+        });
     }
 
     set onmessage(handler: (e: { data: unknown }) => void) {
@@ -38,12 +49,13 @@ class NodeWorkerWrapper implements WorkerLike {
     }
 
     terminate() {
+        this.terminated = true;
         this.worker.terminate();
     }
 }
 
 
-const cores = (): number => cpus().length;
+const cores = (): number => availableParallelism();
 
 const spawn = (url: string): WorkerLike => new NodeWorkerWrapper(url);
 
