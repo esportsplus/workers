@@ -117,7 +117,10 @@ class Pool {
     private acquire(): WorkerLike | undefined {
         let worker = this.available.pop();
 
-        if (!worker && this.workers.length < this.limit) {
+        if (worker) {
+            this.clearIdleTimer(worker);
+        }
+        else if (this.workers.length < this.limit) {
             worker = this.createWorker();
         }
 

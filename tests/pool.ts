@@ -786,6 +786,39 @@ describe('Pool', () => {
             await p.shutdown();
         });
 
+        it('does not leak an idle timer when the queue drains to only aborted tasks', async () => {
+            vi.useFakeTimers();
+
+            let controller = new AbortController(),
+                p = createPool<{ work: () => number }>('test.js', { idleTimeout: 3000, limit: 1 });
+
+            let a = p().work(),
+                worker = mockWorkers[0],
+                b = p({ signal: controller.signal }).work();
+
+            controller.abort();
+
+            await expect(b).rejects.toThrow('task aborted');
+
+            // A completes: markAvailable arms an idle timer, then processQueue pops the worker,
+            // skips the aborted B and hands the worker back — the second timer must replace the first
+            simulateResult(worker, captureUuid(worker), 1);
+
+            await expect(a).resolves.toBe(1);
+
+            let c = p().work();
+
+            vi.advanceTimersByTime(3000);
+
+            expect(worker.terminate).not.toHaveBeenCalled();
+            expect(p.stats().workers).toBe(1);
+
+            simulateResult(worker, captureUuid(worker), 3);
+
+            await expect(c).resolves.toBe(3);
+            await p.shutdown();
+        });
+
         it('recreates a worker after a full idle teardown (1 -> 0 -> 1)', async () => {
             vi.useFakeTimers();
 
