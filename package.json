@@ -12,6 +12,9 @@
         "@types/node": "^26.0.1",
         "vitest": "^4.1.9"
     },
+    "files": [
+        "build"
+    ],
     "main": "./build/index.js",
     "name": "@esportsplus/workers",
     "private": false,
@@ -30,5 +33,5 @@
     },
     "type": "module",
     "types": "./build/index.d.ts",
-    "version": "0.9.2"
+    "version": "0.10.0"
 }

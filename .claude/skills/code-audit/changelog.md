@@ -1,8 +1,8 @@
 ---
 project: "@esportsplus/workers"
-last_updated: 2026-06-30
+last_updated: 2026-09-02
 counts:
-  completed: 50
+  completed: 72
   rejected: 7
   skipped: 0
   reverted: 3
@@ -100,6 +100,40 @@ Testing / Coverage
 | F-54 numeric() per-field validation assertion-strength (P1) — `describe('option validation')` asserted only field-name substrings, so a `maxTasksPerWorker`/`heartbeatInterval` rejection was entirely untested and an integer↔finite flag inversion stayed green. Added: `maxTasksPerWorker` 2.5→`/integer/` + -1 throws; `heartbeatInterval` -1/NaN throw; clause-pinning `retries:1.5`→`/retries must be an integer >= 0/` and `idleTimeout:-1`→`/idleTimeout must be a finite number >= 0/`. Hardens F-42's tests (F-42 was the implementation). |
 
 Suite 259 → 267 passing (+8 cases across the two findings). No src/ changes (test-only). Registry: F-53/F-54 closed; 11 prior pool.ts findings (F-40..F-52) auto-closed as confirmed-fixed during audit run 6.
+
+### Run 6 — spec-implementation of storage/audit-plan.md (2026-09-02, v0.9.2 → 0.10.0)
+
+Correctness
+| B1 (P0) proxy get trap returns undefined for symbols + `then` — String()/util.inspect/await/Promise.resolve no longer crash on the symbol-in-template path or schedule a phantom unobservable `then` task |
+| B2 (P1) drop the options/path get branch — actions named `path`/`options` now build a real dispatch path instead of leaking proxy internals (same fix as B1) |
+| B3 (P0) try/catch around dispatch postMessage — a synchronous DataCloneError frees the worker + rejects the task instead of pinning the slot and hanging shutdown |
+| B4 (P1) private settle() runs the cleanup check on crash/timeout/heartbeat/abort — shutdown() resolves immediately when the last pending task ends abnormally instead of waiting the full grace period |
+| B5 (P1) every idle-eligible worker goes through markAvailable (processQueue/maxTasksPerWorker); recycleWorker is teardown-only (no eager respawn) so idleTimeout reaps recycled workers and shutdown spawns no throwaways |
+| B6 (P1) abort handler stored on task.onAbort and removed in settle/retry/shutdown; retry timer cleared when abort fires mid-backoff — no listener accumulation on a shared signal, no leaked timers |
+| B7 (P1) NodeWorkerWrapper subscribes to `exit` (terminated flag) — a worker that exits without an error event rejects its task and drops the slot |
+| B8 (P2) heartbeat-after-completion arms no timer (guard on pending.has) |
+| B9 (P2) constructor rejects heartbeatTimeout <= max(heartbeatInterval, 50) |
+| B10 (P2) releasing guard collapses duplicate release dispatches (and shutdown) to one release frame |
+
+Performance
+| P1 (P0) collectTransferables treats ArrayBuffer.isView as a leaf at the root, both shallow fast paths, and both walk branches — a 1 MB Uint8Array/Buffer dropped from ~35-41ms to ~13-42ns/call (bench-gated within 10x of the raw-buffer reference; existing F-23 cases unchanged) |
+| P2 (P1) per-pool integer id sequence replaces crypto.randomUUID(); removes the only @esportsplus/utilities use (off the install graph + browser bundle) |
+| P3 (P2) private acquire() dedupes the three pop-else-create blocks; redundant clearIdleTimer calls dropped |
+
+Cleanup / Types
+| D1 (P2) remove retry() dead aborted/retained/timeoutId writes |
+| D2 (P2) context() no longer calls processQueue (a non-empty queue implies all workers busy) |
+| D3 (P2) onmessage cleanups/heartbeats maps moved into the returned closure — no module-level mutable state |
+| D4 (P2) unify shutdown reject message to 'pool is shutting down'; prefix the PriorityQueue NaN error with '@esportsplus/workers: ' |
+| D5 (P2) Task.releasing required, TaskPromise.dispatch takes string, platform/node uses the real Worker type (Parameters<> transfer casts) instead of a hand-rolled shape |
+| D6 (P2) cores() uses os.availableParallelism() (respects cgroup/container quotas) |
+| D7 (P2) serialise + reconstruct the error name so a TypeError survives the worker round-trip |
+
+Packaging
+| K1 (P1) package.json `files: [build]` + delete .npmignore — tarball ships only build/**, README.md, package.json (20 files) |
+| K2 (P2) this run entry + CONTEXT.md version/suite refresh |
+
+Suite 267 → 302 passing (+35 cases). Eager-respawn assertions in tests/pool.ts (abort/heartbeat) updated to "created on next schedule". Registry: B1..B10, P1..P3, D1..D7, K1..K2 closed (22 findings). F-45 remains BLOCKED (unchanged).
 
 ## Blocked / Deferred
 

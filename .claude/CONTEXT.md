@@ -10,7 +10,7 @@ sections-refreshed: [2,7,10]
 
 ## 1. Project Overview
 
-- **Package**: `@esportsplus/workers` v0.8.1 — "Web worker pool"
+- **Package**: `@esportsplus/workers` v0.10.0 — "Web worker pool"
 - **Type**: ESM library (`"type": "module"`)
 - **Entry**: `main` → `./build/index.js`, `types` → `./build/index.d.ts`
 - **Browser swap**: `package.json#browser` maps `./build/platform/node.js` → `./build/platform/browser.js`
@@ -166,7 +166,7 @@ index.ts — barrel entry (rank #9)
 | platform/browser.ts | tests/platform-browser.ts | cores/spawn/workerPort (F-25) |
 | bench | tests/bench/{run,transfer}.ts, echo-worker.cjs | collectTransferables micro-bench (+ shallow-transferable cases) |
 
-**Gaps**: none outstanding — `platform/*` closed by F-24/F-25; pool priority-scheduler integration + numeric() per-field validation closed by F-53/F-54 (suite 267 passing).
+**Gaps**: none outstanding — `platform/*` closed by F-24/F-25; pool priority-scheduler integration + numeric() per-field validation closed by F-53/F-54 (suite 302 passing).
 
 ## 10. Recent History
 
