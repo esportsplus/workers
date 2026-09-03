@@ -78,6 +78,7 @@ type ScheduleOptions = {
 type Task = {
     aborted: boolean;
     attempts: number;
+    clearAbort?: () => void;
     maxRetries: number;
     maxRetryDelay: number;
     meta?: unknown;

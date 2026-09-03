@@ -43,7 +43,7 @@ class NodeWorkerWrapper implements WorkerLike {
 
     terminate() {
         this.terminated = true;
-        this.worker.terminate();
+        void this.worker.terminate();
     }
 }
 

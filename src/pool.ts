@@ -128,10 +128,8 @@ class Pool {
     }
 
     private clearAbort(task: Task) {
-        if (task.signal && task.onAbort) {
-            task.signal.removeEventListener('abort', task.onAbort);
-            task.onAbort = undefined;
-        }
+        task.clearAbort?.();
+        task.clearAbort = undefined;
     }
 
     private clearHeartbeatTimer(worker: WorkerLike) {
@@ -220,7 +218,7 @@ class Pool {
                 }
 
                 task.retained = true;
-                task.promise.on('release', () => {
+                void task.promise.on('release', () => {
                     if (task.releasing) {
                         return;
                     }
@@ -525,7 +523,12 @@ class Pool {
             return;
         }
 
-        this.priorityQueue.reprioritize(next);
+        try {
+            this.priorityQueue.reprioritize(next);
+        }
+        catch (error) {
+            throw new Error('@esportsplus/workers: pool.context failed to reprioritize queued tasks', { cause: error });
+        }
     }
 
     schedule<T, E extends Record<string, unknown>>(
@@ -595,7 +598,14 @@ class Pool {
                 this.processQueue();
             };
 
-            task.signal.addEventListener('abort', task.onAbort, { once: true });
+            let signal = task.signal,
+                onAbort = task.onAbort;
+
+            signal.addEventListener('abort', onAbort, { once: true });
+            task.clearAbort = () => {
+                signal.removeEventListener('abort', onAbort);
+                task.onAbort = undefined;
+            };
         }
 
         let worker = this.acquire();
