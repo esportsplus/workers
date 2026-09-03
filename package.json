@@ -4,13 +4,13 @@
         "./build/platform/node.js": "./build/platform/browser.js"
     },
     "dependencies": {
-        "@esportsplus/queue": "^0.2.0"
+        "@esportsplus/queue": "^0.4.3"
     },
     "description": "Web worker pool",
     "devDependencies": {
-        "@esportsplus/typescript": "^0.29.5",
-        "@types/node": "^26.0.1",
-        "vitest": "^4.1.9"
+        "@esportsplus/typescript": "^0.33.4",
+        "@types/node": "^26.4.1",
+        "vitest": "^5.0.0"
     },
     "files": [
         "build"
@@ -24,7 +24,7 @@
     },
     "scripts": {
         "bench:run": "npx tsx tests/bench/run.ts",
-        "build": "tsc && tsc-alias",
+        "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
         "test": "vitest run",
         "test:watch": "vitest",
         "-": "-",

@@ -4,5 +4,5 @@
             "node"
         ]
     },
-    "extends": "@esportsplus/typescript/tsconfig.package.dev.json"
+    "extends": "@esportsplus/typescript/tsconfig.package.json"
 }
