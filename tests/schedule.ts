@@ -190,9 +190,14 @@ describe('Pool priority scheduling', () => {
             queued = workers({ meta: { k: Infinity } }).run(1);
 
         // x=Infinity makes the queued task's key Infinity - Infinity = NaN on re-rank.
-        expect(() => workers.context({ x: Infinity })).toThrow('PriorityQueue: compare returned NaN');
+        expect(() => workers.context({ x: Infinity })).toThrow(
+            expect.objectContaining({
+                message: '@esportsplus/workers: pool.context failed to reprioritize queued tasks',
+                cause: expect.objectContaining({ message: '@esportsplus/workers: PriorityQueue: compare returned NaN' })
+            })
+        );
 
-        // The queued task survives in the heap with a NaN key; free the worker so it dispatches, then drain.
+        // Failed reprioritization preserves the queued task; free the worker and drain.
         complete(worker, 0);
         complete(worker, 1);
 
