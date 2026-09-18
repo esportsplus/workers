@@ -4,11 +4,11 @@
         "./build/platform/node.js": "./build/platform/browser.js"
     },
     "dependencies": {
-        "@esportsplus/queue": "^0.4.5"
+        "@esportsplus/queue": "^0.4.6"
     },
     "description": "Web worker pool",
     "devDependencies": {
-        "@esportsplus/typescript": "^0.34.1",
+        "@esportsplus/typescript": "^0.34.4",
         "@types/node": "^26.4.1",
         "vitest": "^5.0.0"
     },
