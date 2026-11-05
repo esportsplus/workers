@@ -8,7 +8,7 @@
     },
     "description": "Web worker pool",
     "devDependencies": {
-        "@esportsplus/typescript": "^0.34.4",
+        "@esportsplus/typescript": "^0.41.0",
         "@types/node": "^26.4.1",
         "vitest": "^5.0.0"
     },
@@ -24,7 +24,7 @@
     },
     "scripts": {
         "bench:run": "npx tsx tests/bench/run.ts",
-        "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
+        "build": "tsc -p tsconfig.build.json",
         "test": "vitest run",
         "test:watch": "vitest",
         "-": "-",
